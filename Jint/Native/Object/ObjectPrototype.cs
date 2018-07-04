@@ -80,7 +80,7 @@ namespace Jint.Native.Object
             var o = TypeConverter.ToObject(Engine, thisObject);
             var toString = o.Get("toString").TryCast<ICallable>(x =>
             {
-                throw new JavaScriptException(Engine.TypeError);
+                ExceptionHelper.ThrowTypeError(Engine);
             });
 
             return toString.Call(o, Arguments.Empty);
@@ -94,12 +94,12 @@ namespace Jint.Native.Object
         /// <returns></returns>
         public JsValue ToObjectString(JsValue thisObject, JsValue[] arguments)
         {
-            if (ReferenceEquals(thisObject, Undefined))
+            if (thisObject.IsUndefined())
             {
                 return "[object Undefined]";
             }
 
-            if (ReferenceEquals(thisObject, Null))
+            if (thisObject.IsNull())
             {
                 return "[object Null]";
             }

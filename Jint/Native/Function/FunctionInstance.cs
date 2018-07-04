@@ -10,20 +10,31 @@ namespace Jint.Native.Function
     {
         private const string PropertyNamePrototype = "prototype";
         private const int PropertyNamePrototypeLength = 9;
-        private PropertyDescriptor _prototype;
+        protected PropertyDescriptor _prototype;
 
         private const string PropertyNameLength = "length";
         private const int PropertyNameLengthLength = 6;
-        private PropertyDescriptor _length;
+        protected PropertyDescriptor _length;
+        protected readonly LexicalEnvironment _scope;
+        protected internal readonly string[] _formalParameters;
+        private readonly bool _strict;
 
-        private readonly Engine _engine;
-
-        protected FunctionInstance(Engine engine, string[] parameters, LexicalEnvironment scope, bool strict) : base(engine)
+        protected FunctionInstance(Engine engine, string[] parameters, LexicalEnvironment scope, bool strict)
+            : this(engine, parameters, scope, strict, objectClass: "Function")
         {
-            _engine = engine;
-            FormalParameters = parameters;
-            Scope = scope;
-            Strict = strict;
+        }
+
+        protected FunctionInstance(
+            Engine engine, 
+            string[] parameters, 
+            LexicalEnvironment scope, 
+            bool strict, 
+            in string objectClass)
+            : base(engine, objectClass)
+        {
+            _formalParameters = parameters;
+            _scope = scope;
+            _strict = strict;
         }
 
         /// <summary>
@@ -34,10 +45,11 @@ namespace Jint.Native.Function
         /// <returns></returns>
         public abstract JsValue Call(JsValue thisObject, JsValue[] arguments);
 
-        public LexicalEnvironment Scope { get; }
+        public LexicalEnvironment Scope => _scope;
 
-        public string[] FormalParameters { get; }
-        public bool Strict { get; }
+        public string[] FormalParameters => _formalParameters;
+
+        public bool Strict => _strict;
 
         public virtual bool HasInstance(JsValue v)
         {
@@ -50,14 +62,14 @@ namespace Jint.Native.Function
             var po = Get("prototype");
             if (!po.IsObject())
             {
-                throw new JavaScriptException(_engine.TypeError, $"Function has non-object prototype '{TypeConverter.ToString(po)}' in instanceof check");
+                ExceptionHelper.ThrowTypeError(_engine, $"Function has non-object prototype '{TypeConverter.ToString(po)}' in instanceof check");
             }
 
             var o = po.AsObject();
 
             if (ReferenceEquals(o, null))
             {
-                throw new JavaScriptException(_engine.TypeError);
+                ExceptionHelper.ThrowTypeError(_engine);
             }
 
             while (true)
@@ -76,8 +88,6 @@ namespace Jint.Native.Function
             }
         }
 
-        public override string Class => "Function";
-
         /// <summary>
         /// http://www.ecma-international.org/ecma-262/5.1/#sec-15.3.5.4
         /// </summary>
@@ -89,9 +99,9 @@ namespace Jint.Native.Function
 
             if (propertyName.Length == 6
                 && propertyName == "caller"
-                && ((v.As<FunctionInstance>()?.Strict).GetValueOrDefault()))
+                && ((v.As<FunctionInstance>()?._strict).GetValueOrDefault()))
             {
-                throw new JavaScriptException(_engine.TypeError);
+                ExceptionHelper.ThrowTypeError(_engine);
             }
 
             return v;

@@ -1,5 +1,5 @@
 ﻿using System;
-using System.Diagnostics.Contracts;
+using System.Globalization;
 using Jint.Runtime;
 
 namespace Jint.Native
@@ -49,12 +49,6 @@ namespace Jint.Native
             _value = value;
         }
 
-        [Pure]
-        public override double AsNumber()
-        {
-            return _value;
-        }
-
         public override object ToObject()
         {
             return _value;
@@ -95,7 +89,7 @@ namespace Jint.Native
 
         internal static JsNumber Create(int value)
         {
-            if (value >= 0 && value < _intToJsValue.Length)
+            if ((uint) value < (uint) _intToJsValue.Length)
             {
                 return _intToJsValue[value];
             }
@@ -110,7 +104,7 @@ namespace Jint.Native
 
         internal static JsNumber Create(uint value)
         {
-            if (value >= 0 && value < _intToJsValue.Length)
+            if (value < (uint) _intToJsValue.Length)
             {
                 return _intToJsValue[value];
             }
@@ -120,7 +114,7 @@ namespace Jint.Native
 
         internal static JsNumber Create(ulong value)
         {
-            if (value >= 0 && value < (ulong) _intToJsValue.Length)
+            if (value < (ulong) _intToJsValue.Length)
             {
                 return _intToJsValue[value];
             }
@@ -130,7 +124,7 @@ namespace Jint.Native
 
         public override string ToString()
         {
-            return _value.ToString();
+            return _value.ToString(CultureInfo.InvariantCulture);
         }
 
         public override bool Equals(JsValue obj)

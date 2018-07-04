@@ -60,13 +60,13 @@ namespace Jint.Native.Symbol
         public override JsValue Call(JsValue thisObject, JsValue[] arguments)
         {
             var description = arguments.At(0);
-            var descString = ReferenceEquals(description, Undefined)
+            var descString = description.IsUndefined()
                 ? Undefined
                 : TypeConverter.ToString(description);
 
             var value = new JsSymbol(description.AsString());
 
-            if (JsValue.ReturnOnAbruptCompletion(ref descString))
+            if (ReturnOnAbruptCompletion(ref descString))
             {
                 return descString;
             }
@@ -80,8 +80,7 @@ namespace Jint.Native.Symbol
 
             // 2. ReturnIfAbrupt(stringKey).
 
-            JsSymbol symbol;
-            if (!Engine.GlobalSymbolRegistry.TryGetValue(stringKey, out symbol))
+            if (!Engine.GlobalSymbolRegistry.TryGetValue(stringKey, out var symbol))
             {
                 symbol = new JsSymbol(stringKey);
                 Engine.GlobalSymbolRegistry.Add(stringKey, symbol);
@@ -96,7 +95,7 @@ namespace Jint.Native.Symbol
 
             if (!sym.IsSymbol())
             {
-                throw new JavaScriptException(Engine.TypeError);
+                ExceptionHelper.ThrowTypeError(Engine);
             }
 
             JsSymbol symbol;
@@ -110,7 +109,8 @@ namespace Jint.Native.Symbol
 
         public ObjectInstance Construct(JsValue[] arguments)
         {
-            throw new JavaScriptException(Engine.TypeError);
+            ExceptionHelper.ThrowTypeError(Engine);
+            return null;
         }
 
         public SymbolInstance Construct(string description)

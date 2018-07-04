@@ -10,24 +10,23 @@ using Jint.Native.Number;
 using Jint.Native.Object;
 using Jint.Native.String;
 using Jint.Runtime.References;
-using Jint.Native.Symbol;
 
 namespace Jint.Runtime
 {
     public enum Types
     {
-        None,
-        Undefined,
-        Null,
-        Boolean,
-        String,
-        Number,
-        Object,
-        Completion,
-        Symbol
+        None = 0,
+        Undefined = 1,
+        Null = 2,
+        Boolean = 3,
+        String = 4,
+        Number = 5,
+        Symbol = 9,
+        Object = 10,
+        Completion = 20,
     }
 
-    public class TypeConverter
+    public static class TypeConverter
     {
         // how many decimals to check when determining if double is actually an int
         private const double DoubleIsIntegerTolerance = double.Epsilon * 100;
@@ -52,17 +51,10 @@ namespace Jint.Runtime
         /// <summary>
         /// http://www.ecma-international.org/ecma-262/5.1/#sec-9.1
         /// </summary>
-        /// <param name="input"></param>
-        /// <param name="preferredType"></param>
-        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static JsValue ToPrimitive(JsValue input, Types preferredType = Types.None)
         {
-            if (ReferenceEquals(input, Null.Instance) || ReferenceEquals(input, Undefined.Instance))
-            {
-                return input;
-            }
-
-            if (input.IsPrimitive())
+            if (input._type > Types.None && input._type < Types.Object) 
             {
                 return input;
             }
@@ -76,91 +68,46 @@ namespace Jint.Runtime
         /// </summary>
         public static bool ToBoolean(JsValue o)
         {
-            var type = o.Type;
-
-            if (type == Types.Object)
+            switch (o._type)
             {
-                return true;
-            }
-
-            if (type == Types.Boolean)
-            {
-                return ((JsBoolean) o)._value;
-            }
-
-            if (ReferenceEquals(o, Undefined.Instance) || ReferenceEquals(o, Null.Instance))
-            {
-                return false;
-            }
-
-            if (type == Types.Number)
-            {
-                var n = ((JsNumber) o)._value;
-                if (n.Equals(0) || double.IsNaN(n))
-                {
+                case Types.Boolean:
+                    return ((JsBoolean) o)._value;
+                case Types.Undefined:
+                case Types.Null:
                     return false;
-                }
-
-                return true;
+                case Types.Number:
+                    var n = ((JsNumber) o)._value;
+                    return n != 0 && !double.IsNaN(n);
+                case Types.String:
+                    return !((JsString) o).IsNullOrEmpty();
+                default:
+                    return true;
             }
-
-            if (type == Types.String)
-            {
-                var s = o.AsString();
-                if (string.IsNullOrEmpty(s))
-                {
-                    return false;
-                }
-
-                return true;
-            }
-
-            return true;
         }
 
         /// <summary>
         /// http://www.ecma-international.org/ecma-262/5.1/#sec-9.3
         /// </summary>
-        /// <param name="o"></param>
-        /// <returns></returns>
         public static double ToNumber(JsValue o)
         {
-            // check number first as this is what is usually expected
-            var type = o.Type;
-            if (type == Types.Number)
+            switch (o._type)
             {
-                return ((JsNumber) o)._value;
+                // check number first as this is what is usually expected
+                case Types.Number:
+                    return ((JsNumber) o)._value;
+                case Types.Undefined:
+                    return double.NaN;
+                case Types.Null:
+                    return 0;
+                case Types.Object when o is IPrimitiveInstance p:
+                    return ToNumber(ToPrimitive(p.PrimitiveValue, Types.Number));
+                case Types.Boolean:
+                    return ((JsBoolean) o)._value ? 1 : 0;
+                case Types.String:
+                    return ToNumber(o.AsStringWithoutTypeCheck());
+                default:
+                    return ToNumber(ToPrimitive(o, Types.Number));
             }
-
-            if (type == Types.Object)
-            {
-                if (o is IPrimitiveInstance p)
-                {
-                    o = p.PrimitiveValue;
-                }
-            }
-
-            if (ReferenceEquals(o, Undefined.Instance))
-            {
-                return double.NaN;
-            }
-
-            if (ReferenceEquals(o, Null.Instance))
-            {
-                return 0;
-            }
-
-            if (type == Types.Boolean)
-            {
-                return ((JsBoolean) o)._value ? 1 : 0;
-            }
-
-            if (type == Types.String)
-            {
-                return ToNumber(o.AsString());
-            }
-
-            return ToNumber(ToPrimitive(o, Types.Number));
         }
 
         private static double ToNumber(string input)
@@ -175,19 +122,22 @@ namespace Jint.Runtime
                 ? StringPrototype.TrimEx(input)
                 : input;
 
-            if (string.IsNullOrEmpty(s))
+            if (s.Length == 0)
             {
                 return 0;
             }
 
-            if ("+Infinity".Equals(s) || "Infinity".Equals(s))
+            if (s.Length == 8 || s.Length == 9)
             {
-                return double.PositiveInfinity;
-            }
+                if ("+Infinity" == s || "Infinity" == s)
+                {
+                    return double.PositiveInfinity;
+                }
 
-            if ("-Infinity".Equals(s))
-            {
-                return double.NegativeInfinity;
+                if ("-Infinity" == s)
+                {
+                    return double.NegativeInfinity;
+                }
             }
 
             // todo: use a common implementation with JavascriptParser
@@ -201,11 +151,11 @@ namespace Jint.Runtime
                         return double.NaN;
                     }
 
-                    double n = Double.Parse(s,
+                    double n = double.Parse(s,
                         NumberStyles.AllowDecimalPoint | NumberStyles.AllowLeadingSign |
                         NumberStyles.AllowLeadingWhite | NumberStyles.AllowTrailingWhite |
                         NumberStyles.AllowExponent, CultureInfo.InvariantCulture);
-                    if (s.StartsWith("-") && n.Equals(0))
+                    if (s.StartsWith("-") && n == 0)
                     {
                         return -0.0;
                     }
@@ -241,7 +191,7 @@ namespace Jint.Runtime
                 return 0;
             }
 
-            if (number.Equals(0) || double.IsInfinity(number))
+            if (number == 0 || double.IsInfinity(number))
             {
                 return number;
             }
@@ -258,7 +208,7 @@ namespace Jint.Runtime
                 return 0;
             }
 
-            if (number.Equals(0) || double.IsInfinity(number))
+            if (number == 0 || double.IsInfinity(number))
             {
                 return number;
             }
@@ -316,7 +266,7 @@ namespace Jint.Runtime
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static string ToString(uint i)
         {
-            return i >= 0 && i < intToString.Length
+            return i < (uint) intToString.Length
                 ? intToString[i]
                 : i.ToString();
         }
@@ -348,104 +298,53 @@ namespace Jint.Runtime
         /// <returns></returns>
         public static string ToString(JsValue o)
         {
-            if (o.IsString())
+            switch (o._type)
             {
-                return o.AsString();
+                case Types.String:
+                    return o.AsStringWithoutTypeCheck();
+                case Types.Boolean:
+                    return ((JsBoolean) o)._value ? "true" : "false";
+                case Types.Number:
+                    return ToString(((JsNumber) o)._value);
+                case Types.Symbol:
+                    return o.AsSymbol();
+                case Types.Undefined:
+                    return Undefined.Text;
+                case Types.Null:
+                    return Null.Text;
+                case Types.Object when o is IPrimitiveInstance p:
+                    return ToString(ToPrimitive(p.PrimitiveValue, Types.String));
+                default:
+                    return ToString(ToPrimitive(o, Types.String));
             }
-
-            if (o.IsObject())
-            {
-                var p = o.AsObject() as IPrimitiveInstance;
-                if (p != null)
-                {
-                    o = p.PrimitiveValue;
-                }
-                else
-                {
-                    var s = o.AsInstance<SymbolInstance>();
-                    if (!ReferenceEquals(s, null))
-                    {
-                        // TODO: throw a TypeError
-                        // NB: But it requires an Engine reference
-                        throw new JavaScriptException(new JsString("TypeError"));
-                    }
-                }
-            }
-
-            if (ReferenceEquals(o, Undefined.Instance))
-            {
-                return Undefined.Text;
-            }
-
-            if (ReferenceEquals(o, Null.Instance))
-            {
-                return Null.Text;
-            }
-
-            if (o.IsBoolean())
-            {
-                return o.AsBoolean() ? "true" : "false";
-            }
-
-            if (o.IsNumber())
-            {
-                return ToString(o.AsNumber());
-            }
-
-            if (o.IsSymbol())
-            {
-                return o.AsSymbol();
-            }
-
-            return ToString(ToPrimitive(o, Types.String));
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static ObjectInstance ToObject(Engine engine, JsValue value)
         {
-            if (value.IsObject())
+            switch (value._type)
             {
-                return value.AsObject();
+                case Types.Object:
+                    return (ObjectInstance) value;
+                case Types.Boolean:
+                    return engine.Boolean.Construct(((JsBoolean) value)._value);
+                case Types.Number:
+                    return engine.Number.Construct(((JsNumber) value)._value);
+                case Types.String:
+                    return engine.String.Construct(value.AsStringWithoutTypeCheck());
+                case Types.Symbol:
+                    return engine.Symbol.Construct(((JsSymbol) value)._value);
+                default:
+                    ExceptionHelper.ThrowTypeError(engine);
+                    return null;
             }
-
-            if (ReferenceEquals(value, Undefined.Instance))
-            {
-                throw new JavaScriptException(engine.TypeError);
-            }
-
-            if (ReferenceEquals(value, Null.Instance))
-            {
-                throw new JavaScriptException(engine.TypeError);
-            }
-
-            if (value.IsBoolean())
-            {
-                return engine.Boolean.Construct(value.AsBoolean());
-            }
-
-            if (value.IsNumber())
-            {
-                return engine.Number.Construct(value.AsNumber());
-            }
-
-            if (value.IsString())
-            {
-                return engine.String.Construct(value.AsString());
-            }
-
-            if (value.IsSymbol())
-            {
-                return engine.Symbol.Construct(value.AsSymbol());
-            }
-
-            throw new JavaScriptException(engine.TypeError);
         }
 
         public static Types GetPrimitiveType(JsValue value)
         {
-            if (value.IsObject())
+            if (value._type == Types.Object)
             {
-                var primitive = value.TryCast<IPrimitiveInstance>();
-                if (primitive != null)
+                if (value is IPrimitiveInstance primitive)
                 {
                     return primitive.Type;
                 }
@@ -462,39 +361,37 @@ namespace Jint.Runtime
             MemberExpression expression,
             object baseReference)
         {
-            if (!ReferenceEquals(o, Undefined.Instance) && !ReferenceEquals(o, Null.Instance))
+            if (o._type != Types.Undefined && o._type != Types.Null)
             {
                 return;
             }
 
-            if (engine.Options._ReferenceResolver != null &&
-                engine.Options._ReferenceResolver.CheckCoercible(o))
+            var referenceResolver = engine.Options.ReferenceResolver;
+            if (referenceResolver != null && referenceResolver.CheckCoercible(o))
             {
                 return;
             }
 
-            string referencedName;
-            
+            ThrowTypeError(engine, o, expression, baseReference);
+        }
+
+        private static void ThrowTypeError(Engine engine, JsValue o, MemberExpression expression, object baseReference)
+        {
+            var referencedName = "The value";
             if (baseReference is Reference reference)
             {
                 referencedName = reference.GetReferencedName();
             }
-            else
-            {
-                referencedName = "The value";
-            }
             
             var message = $"{referencedName} is {o}";
-
-            throw new JavaScriptException(engine.TypeError, message)
-                .SetCallstack(engine, expression.Location);
+            throw new JavaScriptException(engine.TypeError, message).SetCallstack(engine, expression.Location);
         }
 
         public static void CheckObjectCoercible(Engine engine, JsValue o)
         {
-            if (ReferenceEquals(o, Undefined.Instance) || ReferenceEquals(o, Null.Instance))
+            if (o._type == Types.Undefined || o._type == Types.Null)
             {
-                throw new JavaScriptException(engine.TypeError);
+                ExceptionHelper.ThrowTypeError(engine);
             }
         }
 
@@ -550,7 +447,7 @@ namespace Jint.Runtime
 
         public static bool TypeIsNullable(Type type)
         {
-            return !type.IsValueType() || Nullable.GetUnderlyingType(type) != null;
+            return !type.IsValueType || Nullable.GetUnderlyingType(type) != null;
         }
     }
 }

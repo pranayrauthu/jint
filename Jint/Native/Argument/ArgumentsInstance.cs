@@ -12,7 +12,7 @@ namespace Jint.Native.Argument
     /// <summary>
     /// http://www.ecma-international.org/ecma-262/5.1/#sec-10.6
     /// </summary>
-    public class ArgumentsInstance : ObjectInstance
+    public sealed class ArgumentsInstance : ObjectInstance
     {
         // cache key container for array iteration for less allocations
         private static readonly ThreadLocal<HashSet<string>> _mappedNamed = new ThreadLocal<HashSet<string>>(() => new HashSet<string>());
@@ -25,24 +25,28 @@ namespace Jint.Native.Argument
 
         private bool _initialized;
 
-        internal ArgumentsInstance(Engine engine) : base(engine)
+        internal ArgumentsInstance(Engine engine) : base(engine, objectClass: "Arguments")
         {
         }
 
-        internal void Prepare(FunctionInstance func, string[] names, JsValue[] args, EnvironmentRecord env, bool strict)
+        internal void Prepare(
+            FunctionInstance func, 
+            string[] names, 
+            JsValue[] args, 
+            EnvironmentRecord env, 
+            bool strict)
         {
-            Clear();
-
             _func = func;
             _names = names;
             _args = args;
             _env = env;
             _strict = strict;
 
+            _properties?.Clear();
+            _intrinsicProperties?.Clear();
+
             _initialized = false;
         }
-
-        public bool Strict { get; set; }
 
         protected override void EnsureInitialized()
         {
@@ -101,13 +105,11 @@ namespace Jint.Native.Argument
 
         public ObjectInstance ParameterMap { get; set; }
 
-        public override string Class => "Arguments";
-
         public override PropertyDescriptor GetOwnProperty(string propertyName)
         {
             EnsureInitialized();
 
-            if (!Strict && !ReferenceEquals(ParameterMap, null))
+            if (!_strict && !ReferenceEquals(ParameterMap, null))
             {
                 var desc = base.GetOwnProperty(propertyName);
                 if (desc == PropertyDescriptor.Undefined)
@@ -138,7 +140,7 @@ namespace Jint.Native.Argument
             {
                 if (throwOnError)
                 {
-                    throw new JavaScriptException(Engine.TypeError);
+                    ExceptionHelper.ThrowTypeError(Engine);
                 }
 
                 return;
@@ -172,7 +174,7 @@ namespace Jint.Native.Argument
         {
             EnsureInitialized();
 
-            if (!Strict && !ReferenceEquals(ParameterMap, null))
+            if (!_strict && !ReferenceEquals(ParameterMap, null))
             {
                 var map = ParameterMap;
                 var isMapped = map.GetOwnProperty(propertyName);
@@ -181,7 +183,7 @@ namespace Jint.Native.Argument
                 {
                     if (throwOnError)
                     {
-                        throw new JavaScriptException(Engine.TypeError);
+                        ExceptionHelper.ThrowTypeError(Engine);
                     }
                 }
 
@@ -194,7 +196,7 @@ namespace Jint.Native.Argument
                     else
                     {
                         var descValue = desc.Value;
-                        if (!ReferenceEquals(descValue, null) && !ReferenceEquals(descValue, Undefined))
+                        if (!ReferenceEquals(descValue, null) && !descValue.IsUndefined())
                         {
                             map.Put(propertyName, descValue, throwOnError);
                         }
@@ -216,7 +218,7 @@ namespace Jint.Native.Argument
         {
             EnsureInitialized();
 
-            if (!Strict && !ReferenceEquals(ParameterMap, null))
+            if (!_strict && !ReferenceEquals(ParameterMap, null))
             {
                 var map = ParameterMap;
                 var isMapped = map.GetOwnProperty(propertyName);

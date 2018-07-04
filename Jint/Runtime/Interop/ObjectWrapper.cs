@@ -27,7 +27,7 @@ namespace Jint.Runtime.Interop
             {
                 if (throwOnError)
                 {
-                    throw new JavaScriptException(Engine.TypeError);
+                    ExceptionHelper.ThrowTypeError(Engine);
                 }
 
                 return;
@@ -39,7 +39,7 @@ namespace Jint.Runtime.Interop
             {
                 if (throwOnError)
                 {
-                    throw new JavaScriptException(Engine.TypeError, "Unknown member: " + propertyName);
+                    ExceptionHelper.ThrowTypeError(_engine, "Unknown member: " + propertyName);
                 }
                 else
                 {
@@ -140,7 +140,7 @@ namespace Jint.Runtime.Interop
             return PropertyDescriptor.Undefined;
         }
 
-        private bool EqualsIgnoreCasing(string s1, string s2)
+        private static bool EqualsIgnoreCasing(string s1, string s2)
         {
             bool equals = false;
             if (s1.Length == s2.Length)

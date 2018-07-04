@@ -12,13 +12,11 @@ namespace Jint.Runtime.Environments
     /// </summary>
     public sealed class ObjectEnvironmentRecord : EnvironmentRecord
     {
-        private readonly Engine _engine;
         private readonly ObjectInstance _bindingObject;
         private readonly bool _provideThis;
 
         public ObjectEnvironmentRecord(Engine engine, ObjectInstance bindingObject, bool provideThis) : base(engine)
         {
-            _engine = engine;
             _bindingObject = bindingObject;
             _provideThis = provideThis;
         }
@@ -50,10 +48,10 @@ namespace Jint.Runtime.Environments
             var desc = _bindingObject.GetProperty(name);
             if (strict && desc == PropertyDescriptor.Undefined)
             {
-                throw new JavaScriptException(_engine.ReferenceError);
+                ExceptionHelper.ThrowReferenceError(_engine);
             }
 
-            return UnwrapJsValue(desc);
+            return ObjectInstance.UnwrapJsValue(desc, this);
         }
 
         public override bool DeleteBinding(string name)

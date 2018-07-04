@@ -36,7 +36,7 @@ namespace Jint.Native.RegExp
             FastAddProperty("lastIndex", 0, true, false, false);
         }
 
-        private JsValue ToRegExpString(JsValue thisObj, JsValue[] arguments)
+        private static JsValue ToRegExpString(JsValue thisObj, JsValue[] arguments)
         {
             var regExp = thisObj.TryCast<RegExpInstance>();
 
@@ -52,11 +52,11 @@ namespace Jint.Native.RegExp
             var r = TypeConverter.ToObject(Engine, thisObj);
             if (r.Class != "RegExp")
             {
-                throw new JavaScriptException(Engine.TypeError);
+                ExceptionHelper.ThrowTypeError(Engine);
             }
 
             var match = Exec(r, arguments);
-            return !ReferenceEquals(match, Null);
+            return !match.IsNull();
         }
 
         internal JsValue Exec(JsValue thisObj, JsValue[] arguments)
@@ -64,7 +64,7 @@ namespace Jint.Native.RegExp
             var R = TypeConverter.ToObject(Engine, thisObj) as RegExpInstance;
             if (ReferenceEquals(R, null))
             {
-                throw new JavaScriptException(Engine.TypeError);
+                ExceptionHelper.ThrowTypeError(Engine);
             }
 
             var s = TypeConverter.ToString(arguments.At(0));
@@ -116,9 +116,10 @@ namespace Jint.Native.RegExp
             {
                 var group = r.Groups[(int) k];
                 var value = group.Success ? group.Value : Undefined;
-                a.SetIndexValue(k, value, throwOnError: true);
+                a.SetIndexValue(k, value, updateLength: false);
             }
 
+            a.SetLength((uint) n);
             return a;
         }
 

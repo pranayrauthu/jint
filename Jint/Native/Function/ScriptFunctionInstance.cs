@@ -1,5 +1,4 @@
 ﻿using System.Collections.Generic;
-using System.Runtime.CompilerServices;
 using Esprima.Ast;
 using Jint.Native.Argument;
 using Jint.Native.Object;
@@ -35,17 +34,17 @@ namespace Jint.Native.Function
             _functionDeclaration = functionDeclaration;
 
             Extensible = true;
-            Prototype = engine.Function.PrototypeObject;
+            Prototype = _engine.Function.PrototypeObject;
 
-            DefineOwnProperty("length", new PropertyDescriptor(JsNumber.Create(FormalParameters.Length), PropertyFlag.AllForbidden), false);
+            _length = new PropertyDescriptor(JsNumber.Create(_formalParameters.Length), PropertyFlag.AllForbidden);
 
             var proto = new ObjectInstanceWithConstructor(engine, this)
             {
                 Extensible = true,
-                Prototype = Engine.Object.PrototypeObject
+                Prototype = _engine.Object.PrototypeObject
             };
 
-            SetOwnProperty("prototype", new PropertyDescriptor(proto, PropertyFlag.OnlyWritable));
+            _prototype = new PropertyDescriptor(proto, PropertyFlag.OnlyWritable);
 
             if (_functionDeclaration.Id != null)
             {
@@ -116,7 +115,6 @@ namespace Jint.Native.Function
             base.RemoveOwnProperty(propertyName);
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static string[] GetParameterNames(IFunction functionDeclaration)
         {
             var list = functionDeclaration.Params;
@@ -152,60 +150,58 @@ namespace Jint.Native.Function
                 {
                     thisBinding = thisArg;
                 }
-                else if (ReferenceEquals(thisArg, Undefined) || ReferenceEquals(thisArg, Null))
+                else if (thisArg._type == Types.Undefined || thisArg._type == Types.Null)
                 {
-                    thisBinding = Engine.Global;
+                    thisBinding = _engine.Global;
                 }
-                else if (!thisArg.IsObject())
+                else if (thisArg._type != Types.Object)
                 {
-                    thisBinding = TypeConverter.ToObject(Engine, thisArg);
+                    thisBinding = TypeConverter.ToObject(_engine, thisArg);
                 }
                 else
                 {
                     thisBinding = thisArg;
                 }
 
-                var localEnv = LexicalEnvironment.NewDeclarativeEnvironment(Engine, Scope);
+                var localEnv = LexicalEnvironment.NewDeclarativeEnvironment(_engine, _scope);
 
-                Engine.EnterExecutionContext(localEnv, localEnv, thisBinding);
+                _engine.EnterExecutionContext(localEnv, localEnv, thisBinding);
 
-                Completion result = null;
                 try
                 {
-                    var argumentInstanceRented = Engine.DeclarationBindingInstantiation(
+                    var argumentInstanceRented = _engine.DeclarationBindingInstantiation(
                         DeclarationBindingType.FunctionCode,
                         _functionDeclaration.HoistingScope.FunctionDeclarations,
                         _functionDeclaration.HoistingScope.VariableDeclarations,
                         this,
                         arguments);
 
-                    result = Engine.ExecuteStatement(_functionDeclaration.Body);
+                    var result = _engine.ExecuteStatement(_functionDeclaration.Body);
                     
                     var value = result.GetValueOrDefault();
                     
                     // we can safely release arguments if they don't escape the scope
                     if (argumentInstanceRented
-                        && Engine.ExecutionContext.LexicalEnvironment?.Record is DeclarativeEnvironmentRecord der
+                        && _engine.ExecutionContext.LexicalEnvironment?._record is DeclarativeEnvironmentRecord der
                         && !(result.Value is ArgumentsInstance))
                     {
                         der.ReleaseArguments();
                     }
 
-                    if (result.Type == Completion.Throw)
+                    if (result.Type == CompletionType.Throw)
                     {
-                        var ex = new JavaScriptException(value).SetCallstack(Engine, result.Location);
+                        var ex = new JavaScriptException(value).SetCallstack(_engine, result.Location);
                         throw ex;
                     }
 
-                    if (result.Type == Completion.Return)
+                    if (result.Type == CompletionType.Return)
                     {
                         return value;
                     }
                 }
                 finally
                 {
-                    Engine.CompletionPool.Return(result);
-                    Engine.LeaveExecutionContext();
+                    _engine.LeaveExecutionContext();
                 }
 
                 return Undefined;
@@ -220,10 +216,10 @@ namespace Jint.Native.Function
         public ObjectInstance Construct(JsValue[] arguments)
         {
             var proto = Get("prototype").TryCast<ObjectInstance>();
-            var obj = new ObjectInstance(Engine)
+            var obj = new ObjectInstance(_engine)
             {
                 Extensible = true,
-                Prototype = proto ?? Engine.Object.PrototypeObject
+                Prototype = proto ?? _engine.Object.PrototypeObject
             };
 
             var result = Call(obj, arguments).TryCast<ObjectInstance>();

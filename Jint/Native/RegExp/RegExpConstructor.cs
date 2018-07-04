@@ -41,8 +41,8 @@ namespace Jint.Native.RegExp
             var pattern = arguments.At(0);
             var flags = arguments.At(1);
 
-            if (!ReferenceEquals(pattern, Undefined)
-                && ReferenceEquals(flags, Undefined)
+            if (!pattern.IsUndefined()
+                && flags.IsUndefined()
                 && TypeConverter.ToObject(Engine, pattern).Class == "Regex")
             {
                 return pattern;
@@ -66,17 +66,17 @@ namespace Jint.Native.RegExp
             var flags = arguments.At(1);
 
             var r = pattern.TryCast<RegExpInstance>();
-            if (ReferenceEquals(flags, Undefined) && !ReferenceEquals(r, null))
+            if (flags.IsUndefined() && !ReferenceEquals(r, null))
             {
                 return r;
             }
 
-            if (!ReferenceEquals(flags, Undefined) && !ReferenceEquals(r, null))
+            if (!flags.IsUndefined() && !ReferenceEquals(r, null))
             {
-                throw new JavaScriptException(Engine.TypeError);
+                ExceptionHelper.ThrowTypeError(Engine);
             }
 
-            if (ReferenceEquals(pattern, Undefined))
+            if (pattern.IsUndefined())
             {
                 p = "";
             }
@@ -85,7 +85,7 @@ namespace Jint.Native.RegExp
                 p = TypeConverter.ToString(pattern);
             }
 
-            f = !ReferenceEquals(flags, Undefined) ? TypeConverter.ToString(flags) : "";
+            f = !flags.IsUndefined() ? TypeConverter.ToString(flags) : "";
 
             r = new RegExpInstance(Engine);
             r.Prototype = PrototypeObject;
@@ -98,11 +98,10 @@ namespace Jint.Native.RegExp
             }
             catch (Exception e)
             {
-                throw new JavaScriptException(Engine.SyntaxError, e.Message);
+                ExceptionHelper.ThrowSyntaxError(_engine, e.Message);
             }
 
-            string s;
-            s = p;
+            var s = p;
 
             if (string.IsNullOrEmpty(s))
             {
@@ -164,7 +163,7 @@ namespace Jint.Native.RegExp
             r.SetOwnProperty("lastIndex", new PropertyDescriptor(0, PropertyFlag.OnlyWritable));
         }
 
-        private void AssignFlags(RegExpInstance r, string flags)
+        private static void AssignFlags(RegExpInstance r, string flags)
         {
             for(var i=0; i < flags.Length; i++)
             {

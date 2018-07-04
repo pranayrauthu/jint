@@ -1,4 +1,5 @@
-﻿using Jint.Native;
+﻿using System.Runtime.CompilerServices;
+using Jint.Native;
 using Jint.Native.Object;
 using Jint.Runtime.References;
 
@@ -12,7 +13,7 @@ namespace Jint.Runtime.Environments
     public sealed class LexicalEnvironment
     {
         private readonly Engine _engine;
-        private readonly EnvironmentRecord _record;
+        internal readonly EnvironmentRecord _record;
         private readonly LexicalEnvironment _outer;
 
         public LexicalEnvironment(Engine engine, EnvironmentRecord record, LexicalEnvironment outer)
@@ -22,30 +23,46 @@ namespace Jint.Runtime.Environments
             _outer = outer;
         }
 
-        public EnvironmentRecord Record => _record;
+        public EnvironmentRecord Record
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get { return _record; }
+        }
 
         public LexicalEnvironment Outer => _outer;
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static Reference GetIdentifierReference(LexicalEnvironment lex, string name, bool strict)
+        {
+            // optimize for common case where result is in one of the nearest scopes
+            if (lex._record.HasBinding(name))
+            {
+                return lex._engine._referencePool.Rent(lex._record, name, strict);
+            }
+
+            if (lex._outer == null)
+            {
+                return new Reference(Undefined.Instance, name, strict);
+            }
+            
+            return GetIdentifierReferenceLooping(lex._outer, name, strict);
+        }
+
+        private static Reference GetIdentifierReferenceLooping(LexicalEnvironment lex, string name, bool strict)
         {
             while (true)
             {
-                if (lex == null)
+                if (lex._record.HasBinding(name))
                 {
-                    return new Reference(Undefined.Instance, name, strict);
+                    return lex._engine._referencePool.Rent(lex._record, name, strict);
                 }
 
-                if (lex.Record.HasBinding(name))
+                if (lex._outer == null)
                 {
-                    return lex._engine.ReferencePool.Rent(lex.Record, name, strict);
+                    return lex._engine._referencePool.Rent(Undefined.Instance, name, strict);
                 }
 
-                if (lex.Outer == null)
-                {
-                    return lex._engine.ReferencePool.Rent(Undefined.Instance, name, strict);
-                }
-
-                lex = lex.Outer;
+                lex = lex._outer;
             }
         }
 

@@ -19,7 +19,7 @@ namespace Jint.Native
     {
         public static readonly JsValue Undefined = new JsUndefined();
         public static readonly JsValue Null = new JsNull();
-        private readonly Types _type;
+        internal readonly Types _type;
 
         protected JsValue(Types type)
         {
@@ -30,7 +30,7 @@ namespace Jint.Native
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool IsPrimitive()
         {
-            return _type != Types.Object && Type != Types.None;
+            return _type != Types.Object && _type != Types.None;
         }
 
         [Pure]
@@ -116,7 +116,7 @@ namespace Jint.Native
         {
             if (!IsObject())
             {
-                ThrowArgumentException("The value is not an object");
+                ExceptionHelper.ThrowArgumentException("The value is not an object");
             }
             return this as ObjectInstance;
         }
@@ -127,7 +127,7 @@ namespace Jint.Native
         {
             if (!IsObject())
             {
-                ThrowArgumentException("The value is not an object");
+                ExceptionHelper.ThrowArgumentException("The value is not an object");
             }
             return this as TInstance;
         }
@@ -138,7 +138,7 @@ namespace Jint.Native
         {
             if (!IsArray())
             {
-                ThrowArgumentException("The value is not an array");
+                ExceptionHelper.ThrowArgumentException("The value is not an array");
             }
             return this as ArrayInstance;
         }
@@ -149,7 +149,7 @@ namespace Jint.Native
         {
             if (!IsDate())
             {
-                ThrowArgumentException("The value is not a date");
+                ExceptionHelper.ThrowArgumentException("The value is not a date");
             }
             return this as DateInstance;
         }
@@ -159,7 +159,7 @@ namespace Jint.Native
         {
             if (!IsRegExp())
             {
-                ThrowArgumentException("The value is not a regex");
+                ExceptionHelper.ThrowArgumentException("The value is not a regex");
             }
 
             return this as RegExpInstance;
@@ -170,21 +170,20 @@ namespace Jint.Native
         {
             if (_type != Types.Completion)
             {
-                ThrowArgumentException("The value is not a completion record");
+                ExceptionHelper.ThrowArgumentException("The value is not a completion record");
             }
 
             // TODO not implemented
-            return null;
+            return new Completion(CompletionType.Normal, Native.Undefined.Instance, null);
         }
 
         [Pure]
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public T TryCast<T>(Action<JsValue> fail = null) where T : class
         {
-            if (IsObject())
+            if (_type == Types.Object)
             {
-                var o = this as T;
-                if (o != null)
+                if (this is T o)
                 {
                     return o;
                 }
@@ -211,30 +210,6 @@ namespace Jint.Native
                 return this as T;
             }
             return null;
-        }
-
-        [Pure]
-        public virtual bool AsBoolean()
-        {
-            throw new ArgumentException("The value is not a boolean");
-        }
-
-        [Pure]
-        public virtual string AsString()
-        {
-            throw new ArgumentException("The value is not a string");
-        }
-
-        [Pure]
-        public virtual string AsSymbol()
-        {
-            throw new ArgumentException("The value is not a symbol");
-        }
-
-        [Pure]
-        public virtual double AsNumber()
-        {
-            throw new ArgumentException("The value is not a number");
         }
 
         // ReSharper disable once ConvertToAutoPropertyWhenPossible // PERF
@@ -358,13 +333,7 @@ namespace Jint.Native
         /// <returns>The value returned by the function call.</returns>
         public JsValue Invoke(JsValue thisObj, JsValue[] arguments)
         {
-            var callable = TryCast<ICallable>();
-
-            if (callable == null)
-            {
-                throw new ArgumentException("Can only invoke functions");
-            }
-
+            var callable = this as ICallable ?? ExceptionHelper.ThrowArgumentException<ICallable>("Can only invoke functions");
             return callable.Call(thisObj, arguments);
         }
 
@@ -384,11 +353,6 @@ namespace Jint.Native
             argument = completion.Value;
 
             return false;
-        }
-
-        private static void ThrowArgumentException(string message)
-        {
-            throw new ArgumentException(message);
         }
 
         public override string ToString()
@@ -511,13 +475,13 @@ namespace Jint.Native
                         Value = "null";
                         break;
                     case Types.Boolean:
-                        Value = value.AsBoolean() + " (bool)";
+                        Value = ((JsBoolean) value)._value + " (bool)";
                         break;
                     case Types.String:
-                        Value = value.AsString() + " (string)";
+                        Value = value.AsStringWithoutTypeCheck() + " (string)";
                         break;
                     case Types.Number:
-                        Value = value.AsNumber() + " (number)";
+                        Value = ((JsNumber) value)._value + " (number)";
                         break;
                     case Types.Object:
                         Value = value.AsObject().GetType().Name;

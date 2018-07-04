@@ -13,23 +13,16 @@ namespace Jint.Native.Date
         internal static readonly double Min = -(new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc) - DateTime.MinValue).TotalMilliseconds;
 
         public DateInstance(Engine engine)
-            : base(engine)
+            : base(engine, objectClass: "Date")
         {
-        }
-
-        public override string Class
-        {
-            get
-            {
-                return "Date";
-            }
         }
 
         public DateTime ToDateTime()
         {
             if (double.IsNaN(PrimitiveValue) || PrimitiveValue > Max || PrimitiveValue < Min)
             {
-                throw new JavaScriptException(Engine.RangeError);
+                ExceptionHelper.ThrowRangeError(Engine);
+                return DateTime.MinValue;
             }
             else
             {
