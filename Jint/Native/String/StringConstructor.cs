@@ -9,7 +9,7 @@ namespace Jint.Native.String
     public sealed class StringConstructor : FunctionInstance, IConstructor
     {
         public StringConstructor(Engine engine)
-            : base(engine, null, null, false)
+            : base(engine, "String", null, null, false)
         {
         }
 
@@ -32,7 +32,7 @@ namespace Jint.Native.String
 
         public void Configure()
         {
-            SetOwnProperty("fromCharCode", new PropertyDescriptor(new ClrFunctionInstance(Engine, FromCharCode, 1), PropertyFlag.NonEnumerable));
+            SetOwnProperty("fromCharCode", new PropertyDescriptor(new ClrFunctionInstance(Engine, "fromCharCode", FromCharCode, 1), PropertyFlag.NonEnumerable));
         }
 
         private static JsValue FromCharCode(JsValue thisObj, JsValue[] arguments)
@@ -70,12 +70,18 @@ namespace Jint.Native.String
 
         public StringInstance Construct(string value)
         {
-            var instance = new StringInstance(Engine);
-            instance.Prototype = PrototypeObject;
-            instance.PrimitiveValue = value;
-            instance.Extensible = true;
+            return Construct(JsString.Create(value));
+        }
 
-            instance.SetOwnProperty("length", new PropertyDescriptor(value.Length, PropertyFlag.AllForbidden));
+        public StringInstance Construct(JsString value)
+        {
+            var instance = new StringInstance(Engine)
+            {
+                Prototype = PrototypeObject,
+                PrimitiveValue = value,
+                Extensible = true,
+                _length = new PropertyDescriptor(value.Length, PropertyFlag.AllForbidden)
+            };
 
             return instance;
         }

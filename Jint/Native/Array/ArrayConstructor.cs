@@ -1,16 +1,19 @@
 ﻿using System.Collections;
 using System.Runtime.CompilerServices;
 using Jint.Native.Function;
+using Jint.Native.Iterator;
 using Jint.Native.Object;
+using Jint.Native.Symbol;
 using Jint.Runtime;
 using Jint.Runtime.Descriptors;
+using Jint.Runtime.Descriptors.Specialized;
 using Jint.Runtime.Interop;
 
 namespace Jint.Native.Array
 {
     public sealed class ArrayConstructor : FunctionInstance, IConstructor
     {
-        private ArrayConstructor(Engine engine) :  base(engine, null, null, false)
+        private ArrayConstructor(Engine engine) :  base(engine, "Array", null, null, false)
         {
         }
 
@@ -25,17 +28,158 @@ namespace Jint.Native.Array
             obj.Prototype = engine.Function.PrototypeObject;
             obj.PrototypeObject = ArrayPrototype.CreatePrototypeObject(engine, obj);
 
-            obj.SetOwnProperty("length", new PropertyDescriptor(1, PropertyFlag.AllForbidden));
+            obj.SetOwnProperty("length", new PropertyDescriptor(1, PropertyFlag.Configurable));
 
             // The initial value of Array.prototype is the Array prototype object
             obj.SetOwnProperty("prototype", new PropertyDescriptor(obj.PrototypeObject, PropertyFlag.AllForbidden));
+
+            obj.SetOwnProperty(GlobalSymbolRegistry.Species._value,
+                new GetSetPropertyDescriptor(
+                    get: new ClrFunctionInstance(engine, "get [Symbol.species]", Species, 0, PropertyFlag.Configurable),
+                    set: Undefined,
+                    PropertyFlag.Configurable));
 
             return obj;
         }
 
         public void Configure()
         {
-            SetOwnProperty("isArray", new PropertyDescriptor(new ClrFunctionInstance(Engine, IsArray, 1), PropertyFlag.NonEnumerable));
+            SetOwnProperty("from",new PropertyDescriptor(new ClrFunctionInstance(Engine, "from", From, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable));
+            SetOwnProperty("isArray", new PropertyDescriptor(new ClrFunctionInstance(Engine, "isArray", IsArray, 1), PropertyFlag.NonEnumerable));
+            SetOwnProperty("of", new PropertyDescriptor(new ClrFunctionInstance(Engine, "of", Of, 0, PropertyFlag.Configurable), PropertyFlag.NonEnumerable));
+        }
+
+        private JsValue From(JsValue thisObj, JsValue[] arguments)
+        {
+            var source = arguments.At(0);
+            var mapFunction = arguments.At(1);
+            var callable = !mapFunction.IsUndefined() ? GetCallable(mapFunction) : null;
+            var thisArg = arguments.At(2);
+
+            if (source.IsNullOrUndefined())
+            {
+                ExceptionHelper.ThrowTypeError(_engine, "Cannot convert undefined or null to object");
+            }
+
+            if (source is JsString jsString)
+            {
+                var a = _engine.Array.ConstructFast((uint) jsString.Length);
+                for (int i = 0; i < jsString._value.Length; i++)
+                {
+                    a.SetIndexValue((uint) i, JsString.Create(jsString._value[i]), updateLength: false);
+                }
+                return a;
+            }
+
+            if (thisObj.IsNull() || !(source is ObjectInstance objectInstance))
+            {
+                return _engine.Array.ConstructFast(0);
+            }
+
+            if (objectInstance.IsArrayLike)
+            {
+                var operations = ArrayPrototype.ArrayOperations.For(objectInstance);
+
+                var length = operations.GetLength();
+
+                var a = _engine.Array.ConstructFast(length);
+                var args = !ReferenceEquals(callable, null)
+                    ? _engine._jsValueArrayPool.RentArray(2)
+                    : null;
+
+                uint n = 0;
+                for (uint i = 0; i < length; i++)
+                {
+                    JsValue jsValue;
+                    operations.TryGetValue(i, out var value);
+                    if (!ReferenceEquals(callable, null))
+                    {
+                        args[0] = value;
+                        args[1] = i;
+                        jsValue = callable.Call(thisArg, args);
+
+                        // function can alter data
+                        length = operations.GetLength();
+                    }
+                    else
+                    {
+                        jsValue = value;
+                    }
+                    a.SetIndexValue(i, jsValue, updateLength: false);
+                    n++;
+                }
+
+                if (!ReferenceEquals(callable, null))
+                {
+                    _engine._jsValueArrayPool.ReturnArray(args);
+                }
+
+                a.SetLength(length);
+                return a;
+            }
+
+            var instance = _engine.Array.ConstructFast(0);
+            if (objectInstance.TryGetIterator(_engine, out var iterator))
+            {
+                var protocol = new ArrayProtocol(_engine, thisArg, instance, iterator, callable);
+                protocol.Execute();
+            }
+
+            return instance;
+        }
+
+        private sealed class ArrayProtocol : IteratorProtocol
+        {
+            private readonly JsValue _thisArg;
+            private readonly ArrayInstance _instance;
+            private readonly ICallable _callable;
+            private long _index = -1;
+
+            public ArrayProtocol(
+                Engine engine, 
+                JsValue thisArg,
+                ArrayInstance instance,
+                IIterator iterator,
+                ICallable callable) : base(engine, iterator, 2)
+            {
+                _thisArg = thisArg;
+                _instance = instance;
+                _callable = callable;
+            }
+
+            protected override void ProcessItem(JsValue[] args, JsValue currentValue)
+            {
+                _index++;
+                var sourceValue = ExtractValueFromIteratorInstance(currentValue);
+                JsValue jsValue;
+                if (!ReferenceEquals(_callable, null))
+                {
+                    args[0] = sourceValue;
+                    args[1] = _index; 
+                    jsValue = _callable.Call(_thisArg, args);
+                }
+                else
+                {
+                    jsValue = sourceValue;
+                }
+
+                _instance.SetIndexValue((uint) _index, jsValue, updateLength: false);
+            }
+
+            protected override void IterationEnd()
+            {
+                _instance.SetLength((uint) (_index + 1));
+            }
+        }
+
+        private JsValue Of(JsValue thisObj, JsValue[] arguments)
+        {
+            return _engine.Array.Construct(arguments);
+        }
+
+        private static JsValue Species(JsValue thisObject, JsValue[] arguments)
+        {
+            return thisObject;
         }
 
         private static JsValue IsArray(JsValue thisObj, JsValue[] arguments)
@@ -76,12 +220,12 @@ namespace Jint.Native.Array
             {
                 ExceptionHelper.ThrowArgumentException("invalid array length", nameof(capacity));
             }
-            return Construct(System.Array.Empty<JsValue>(), (uint) capacity);
+            return Construct(System.ArrayExt.Empty<JsValue>(), (uint) capacity);
         }
 
         public ArrayInstance Construct(uint capacity)
         {
-            return Construct(System.Array.Empty<JsValue>(), capacity);
+            return Construct(System.ArrayExt.Empty<JsValue>(), capacity);
         }
 
         public ArrayInstance Construct(JsValue[] arguments, uint capacity)

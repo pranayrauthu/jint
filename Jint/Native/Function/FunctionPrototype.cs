@@ -11,7 +11,8 @@ namespace Jint.Native.Function
     /// </summary>
     public sealed class FunctionPrototype : FunctionInstance
     {
-        private FunctionPrototype(Engine engine) : base(engine, null, null, false)
+        private FunctionPrototype(Engine engine)
+            : base(engine, "Function", null, null, false)
         {
         }
 
@@ -31,10 +32,10 @@ namespace Jint.Native.Function
         public void Configure()
         {
             SetOwnProperty("constructor", new PropertyDescriptor(Engine.Function, PropertyFlag.NonEnumerable));
-            FastAddProperty("toString", new ClrFunctionInstance(Engine, ToString), true, false, true);
-            FastAddProperty("apply", new ClrFunctionInstance(Engine, Apply, 2), true, false, true);
-            FastAddProperty("call", new ClrFunctionInstance(Engine, CallImpl, 1), true, false, true);
-            FastAddProperty("bind", new ClrFunctionInstance(Engine, Bind, 1), true, false, true);
+            FastAddProperty("toString", new ClrFunctionInstance(Engine, "toString", ToString), true, false, true);
+            FastAddProperty("apply", new ClrFunctionInstance(Engine, "apply", Apply, 2), true, false, true);
+            FastAddProperty("call", new ClrFunctionInstance(Engine, "call", CallImpl, 1), true, false, true);
+            FastAddProperty("bind", new ClrFunctionInstance(Engine, "bind", Bind, 1), true, false, true);
         }
 
         private JsValue Bind(JsValue thisObj, JsValue[] arguments)
@@ -89,20 +90,20 @@ namespace Jint.Native.Function
             var thisArg = arguments.At(0);
             var argArray = arguments.At(1);
 
-            if (func == null)
+            if (func is null)
             {
-                ExceptionHelper.ThrowTypeError(Engine);
+                return ExceptionHelper.ThrowTypeError<JsValue>(Engine);
             }
 
-            if (argArray.IsNull() || argArray.IsUndefined())
+            if (argArray.IsNullOrUndefined())
             {
                 return func.Call(thisArg, Arguments.Empty);
             }
 
             var argArrayObj = argArray.TryCast<ObjectInstance>();
-            if (ReferenceEquals(argArrayObj, null))
+            if (argArrayObj is null)
             {
-                ExceptionHelper.ThrowTypeError(Engine);
+                return ExceptionHelper.ThrowTypeError<JsValue>(Engine);
             }
 
             var len = ((JsNumber) argArrayObj.Get("length"))._value;
@@ -118,16 +119,16 @@ namespace Jint.Native.Function
 
             var result = func.Call(thisArg, argList);
             _engine._jsValueArrayPool.ReturnArray(argList);
-            
+
             return result;
         }
 
         public JsValue CallImpl(JsValue thisObject, JsValue[] arguments)
         {
             var func = thisObject.TryCast<ICallable>();
-            if (func == null)
+            if (func is null)
             {
-                ExceptionHelper.ThrowTypeError(Engine);
+                return ExceptionHelper.ThrowTypeError<JsValue>(Engine);
             }
 
             return func.Call(arguments.At(0), arguments.Length == 0 ? arguments : arguments.Skip(1));

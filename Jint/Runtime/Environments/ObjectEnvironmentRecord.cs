@@ -76,7 +76,11 @@ namespace Jint.Runtime.Environments
                 return _bindingObject.GetOwnProperties().Select( x=> x.Key).ToArray();
             }
 
-            return Array.Empty<string>();
+            return ArrayExt.Empty<string>();
+        }
+
+        internal override void FunctionWasCalled()
+        {
         }
     }
 }

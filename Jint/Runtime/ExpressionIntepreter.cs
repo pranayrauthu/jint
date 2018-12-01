@@ -275,11 +275,11 @@ namespace Jint.Runtime
                     break;
 
                 case BinaryOperator.Equal:
-                    value = Equal(left, right);
+                    value = Equal(left, right) ? JsBoolean.True : JsBoolean.False;
                     break;
 
                 case BinaryOperator.NotEqual:
-                    value = !Equal(left, right);
+                    value = Equal(left, right) ? JsBoolean.False : JsBoolean.True;
                     break;
 
                 case BinaryOperator.Greater:
@@ -323,10 +323,10 @@ namespace Jint.Runtime
                     break;
 
                 case BinaryOperator.StrictlyEqual:
-                    return StrictlyEqual(left, right);
+                    return StrictlyEqual(left, right) ? JsBoolean.True : JsBoolean.False;
 
                 case BinaryOperator.StricltyNotEqual:
-                    return !StrictlyEqual(left, right);
+                    return StrictlyEqual(left, right)? JsBoolean.False : JsBoolean.True;
 
                 case BinaryOperator.BitwiseAnd:
                     return TypeConverter.ToInt32(left) & TypeConverter.ToInt32(right);
@@ -345,6 +345,9 @@ namespace Jint.Runtime
 
                 case BinaryOperator.UnsignedRightShift:
                     return (uint)TypeConverter.ToInt32(left) >> (int)(TypeConverter.ToUint32(right) & 0x1F);
+
+                case BinaryOperator.Exponentiation:
+                    return Math.Pow(TypeConverter.ToNumber(left), TypeConverter.ToNumber(right));
 
                 case BinaryOperator.InstanceOf:
                     var f = right.TryCast<FunctionInstance>();
@@ -402,50 +405,47 @@ namespace Jint.Runtime
 
         private static bool Equal(JsValue x, JsValue y)
         {
-            var typex = x.Type;
-            var typey = y.Type;
-
-            if (typex == typey)
+            if (x._type == y._type)
             {
 				return StrictlyEqual(x, y);
             }
 
-            if (x.IsNull() && y.IsUndefined())
+            if (x._type == Types.Null && y._type == Types.Undefined)
             {
                 return true;
             }
 
-            if (x.IsUndefined() && y.IsNull())
+            if (x._type == Types.Undefined && y._type == Types.Null)
             {
                 return true;
             }
 
-            if (typex == Types.Number && typey == Types.String)
+            if (x._type == Types.Number && y._type == Types.String)
             {
                 return Equal(x, TypeConverter.ToNumber(y));
             }
 
-            if (typex == Types.String && typey == Types.Number)
+            if (x._type == Types.String && y._type == Types.Number)
             {
                 return Equal(TypeConverter.ToNumber(x), y);
             }
 
-            if (typex == Types.Boolean)
+            if (x._type == Types.Boolean)
             {
                 return Equal(TypeConverter.ToNumber(x), y);
             }
 
-            if (typey == Types.Boolean)
+            if (y._type == Types.Boolean)
             {
                 return Equal(x, TypeConverter.ToNumber(y));
             }
 
-            if (typey == Types.Object && (typex == Types.String || typex == Types.Number))
+            if (y._type == Types.Object && (x._type == Types.String || x._type == Types.Number))
             {
                 return Equal(x, TypeConverter.ToPrimitive(y));
             }
 
-            if (typex == Types.Object && (typey == Types.String || typey == Types.Number))
+            if (x._type == Types.Object && (y._type == Types.String || y._type == Types.Number))
             {
                 return Equal(TypeConverter.ToPrimitive(x), y);
             }
@@ -455,37 +455,40 @@ namespace Jint.Runtime
 
         public static bool StrictlyEqual(JsValue x, JsValue y)
         {
-            var typea = x.Type;
-            var typeb = y.Type;
-
-            if (typea != typeb)
+            if (x._type != y._type)
             {
                 return false;
             }
 
-            switch (typea)
+            if (x._type == Types.Boolean || x._type == Types.String)
             {
-                case Types.Undefined:
-                case Types.Null:
-                    return true;
-                case Types.Number:
-                    var nx = ((JsNumber) x)._value;
-                    var ny = ((JsNumber) y)._value;
-                    return !double.IsNaN(nx) && !double.IsNaN(ny) && nx == ny;
-                case Types.String:
-                    return x.AsStringWithoutTypeCheck() == y.AsStringWithoutTypeCheck();
-                case Types.Boolean:
-                    return ((JsBoolean) x)._value == ((JsBoolean) y)._value;
-                case Types.Object when x.AsObject() is IObjectWrapper xw:
-                    var yw = y.AsObject() as IObjectWrapper;
-                    if (yw == null)
-                        return false;
-                    return Equals(xw.Target, yw.Target);
-                case Types.None:
-                    return true;
-                default:
-                    return x == y;
+                return x.Equals(y);
             }
+
+                        
+            if (x._type >= Types.None && x._type <= Types.Null)
+            {
+                return true;
+            }
+
+            if (x is JsNumber jsNumber)
+            {
+                var nx = jsNumber._value;
+                var ny = ((JsNumber) y)._value;
+                return !double.IsNaN(nx) && !double.IsNaN(ny) && nx == ny;
+            }
+
+            if (x is IObjectWrapper xw)
+            {
+                if (!(y is IObjectWrapper yw))
+                {
+                    return false;
+                }
+
+                return Equals(xw.Target, yw.Target);
+            }
+
+            return x == y;
         }
 
         public static bool SameValue(JsValue x, JsValue y)
@@ -632,74 +635,54 @@ namespace Jint.Runtime
         public JsValue EvaluateObjectExpression(ObjectExpression objectExpression)
         {
             // http://www.ecma-international.org/ecma-262/5.1/#sec-11.1.5
-
-            var obj = _engine.Object.Construct(Arguments.Empty);
             var propertiesCount = objectExpression.Properties.Count;
+            var obj = _engine.Object.Construct(propertiesCount);
             for (var i = 0; i < propertiesCount; i++)
             {
                 var property = objectExpression.Properties[i];
                 var propName = property.Key.GetKey();
-                var previous = obj.GetOwnProperty(propName);
+                if (!obj._properties.TryGetValue(propName, out var previous))
+                {
+                    previous = PropertyDescriptor.Undefined;
+                }
+                
                 PropertyDescriptor propDesc;
 
-                const PropertyFlag enumerableConfigurable = PropertyFlag.Enumerable | PropertyFlag.Configurable;
-                
-                switch (property.Kind)
+                if (property.Kind == PropertyKind.Init || property.Kind == PropertyKind.Data)
                 {
-                    case PropertyKind.Init:
-                    case PropertyKind.Data:
-                        var exprValue = _engine.EvaluateExpression(property.Value);
-                        var propValue = _engine.GetValue(exprValue, true);
-                        propDesc = new PropertyDescriptor(propValue, PropertyFlag.ConfigurableEnumerableWritable);
-                        break;
+                    var exprValue = _engine.EvaluateExpression(property.Value);
+                    var propValue = _engine.GetValue(exprValue, true);
+                    propDesc = new PropertyDescriptor(propValue, PropertyFlag.ConfigurableEnumerableWritable);
+                }
+                else if (property.Kind == PropertyKind.Get || property.Kind == PropertyKind.Set)
+                {
+                    var function = property.Value as IFunction;
 
-                    case PropertyKind.Get:
-                        var getter = property.Value as IFunction;
+                    if (function == null)
+                    {
+                        return ExceptionHelper.ThrowSyntaxError<JsValue>(_engine);
+                    }
 
-                        if (getter == null)
-                        {
-                            ExceptionHelper.ThrowSyntaxError(_engine);
-                        }
+                    ScriptFunctionInstance functionInstance;
+                    using (new StrictModeScope(function.Strict))
+                    {
+                        functionInstance = new ScriptFunctionInstance(
+                            _engine,
+                            function,
+                            _engine.ExecutionContext.LexicalEnvironment,
+                            StrictModeScope.IsStrictModeCode
+                        );
+                    }
 
-                        ScriptFunctionInstance get;
-                        using (new StrictModeScope(getter.Strict))
-                        {
-                            get = new ScriptFunctionInstance(
-                                _engine,
-                                getter,
-                                _engine.ExecutionContext.LexicalEnvironment,
-                                StrictModeScope.IsStrictModeCode
-                            );
-                        }
-
-                        propDesc = new GetSetPropertyDescriptor(get: get, set: null, enumerableConfigurable);
-                        break;
-
-                    case PropertyKind.Set:
-                        var setter = property.Value as IFunction;
-
-                        if (setter == null)
-                        {
-                            ExceptionHelper.ThrowSyntaxError(_engine);
-                        }
-
-                        ScriptFunctionInstance set;
-                        using (new StrictModeScope(setter.Strict))
-                        {
-                            set = new ScriptFunctionInstance(
-                                _engine,
-                                setter,
-                                _engine.ExecutionContext.LexicalEnvironment,
-                                StrictModeScope.IsStrictModeCode
-                            );
-                        }
-
-                        propDesc = new GetSetPropertyDescriptor(get: null, set: set, enumerableConfigurable);
-                        break;
-
-                    default:
-                        ExceptionHelper.ThrowArgumentOutOfRangeException();
-                        return null;
+                    propDesc = new GetSetPropertyDescriptor(
+                        get: property.Kind == PropertyKind.Get ? functionInstance : null,
+                        set: property.Kind == PropertyKind.Set ? functionInstance : null,
+                        PropertyFlag.Enumerable | PropertyFlag.Configurable);
+                }
+                else
+                {
+                    ExceptionHelper.ThrowArgumentOutOfRangeException();
+                    return null;
                 }
 
                 if (previous != PropertyDescriptor.Undefined)
@@ -731,9 +714,14 @@ namespace Jint.Runtime
                             ExceptionHelper.ThrowSyntaxError(_engine);
                         }
                     }
-                }
 
-                obj.DefineOwnProperty(propName, propDesc, false);
+                    obj.DefineOwnProperty(propName, propDesc, false);
+                }
+                else
+                {
+                    // do faster direct set
+                    obj._properties[propName] = propDesc;
+                }
             }
 
             return obj;
@@ -780,8 +768,7 @@ namespace Jint.Runtime
                 _engine,
                 functionExpression,
                 funcEnv,
-                functionExpression.Strict
-                );
+                functionExpression.Strict);
 
             if (!string.IsNullOrEmpty(functionExpression.Id?.Name))
             {
@@ -802,7 +789,7 @@ namespace Jint.Runtime
 
             // todo: implement as in http://www.ecma-international.org/ecma-262/5.1/#sec-11.2.4
 
-            var arguments = Array.Empty<JsValue>();
+            var arguments = ArrayExt.Empty<JsValue>();
             if (callExpression.Cached)
             {
                 arguments = (JsValue[]) callExpression.CachedArguments;
@@ -861,10 +848,9 @@ namespace Jint.Runtime
                 }
             }
 
-            var callable = func as ICallable;
-            if (callable == null)
+            if (!(func is ICallable callable))
             {
-                ExceptionHelper.ThrowTypeError(_engine);
+                return ExceptionHelper.ThrowTypeError<JsValue>(_engine);
             }
 
             var thisObject = Undefined.Instance;
@@ -1072,7 +1058,8 @@ namespace Jint.Runtime
                     {
                         return "object";
                     }
-                    switch (v.Type)
+
+                    switch (v._type)
                     {
                         case Types.Boolean: return "boolean";
                         case Types.Number: return "number";
@@ -1096,9 +1083,7 @@ namespace Jint.Runtime
             out bool cacheable)
         {
             cacheable = true;
-            var count = expressionArguments.Count;
-
-            for (var i = 0; i < count; i++)
+            for (var i = 0; i < (uint) targetArray.Length; i++)
             {
                 var argument = (Expression) expressionArguments[i];
                 targetArray[i] = _engine.GetValue(_engine.EvaluateExpression(argument), true);

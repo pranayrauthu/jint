@@ -6,8 +6,10 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using Jint.Native.Array;
 using Jint.Native.Date;
+using Jint.Native.Iterator;
 using Jint.Native.Object;
 using Jint.Native.RegExp;
+using Jint.Native.Symbol;
 using Jint.Runtime;
 using Jint.Runtime.Descriptors;
 using Jint.Runtime.Interop;
@@ -38,6 +40,13 @@ namespace Jint.Native
         public bool IsUndefined()
         {
             return _type == Types.Undefined;
+        }
+
+        [Pure]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal bool IsNullOrUndefined()
+        {
+            return _type < Types.Boolean;
         }
 
         [Pure]
@@ -141,6 +150,42 @@ namespace Jint.Native
                 ExceptionHelper.ThrowArgumentException("The value is not an array");
             }
             return this as ArrayInstance;
+        }
+
+        [Pure]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal IIterator GetIterator(Engine engine)
+        {
+            if (!TryGetIterator(engine, out var iterator))
+            {
+                return ExceptionHelper.ThrowTypeError<IIterator>(engine, "The value is not iterable");
+            }
+
+            return iterator;
+        }
+        
+        [Pure]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal bool TryGetIterator(Engine engine, out IIterator iterator)
+        {
+            if (!(this is ObjectInstance oi)
+                || !oi.TryGetValue(GlobalSymbolRegistry.Iterator._value, out var value)
+                || !(value is ICallable callable))
+            {
+                iterator = null;
+                return false;
+            }
+
+            var obj = (ObjectInstance) callable.Call(this, Arguments.Empty);
+            if (obj is IIterator i)
+            {
+                iterator = i;
+            }
+            else
+            {
+                iterator = new IteratorInstance.ObjectWrapper(obj);
+            }
+            return true;
         }
 
         [Pure]
@@ -280,7 +325,7 @@ namespace Jint.Native
                 return new DelegateWrapper(engine, d);
             }
 
-            if (value.GetType().IsEnum())
+            if (value.GetType().IsEnum)
             {
                 return JsNumber.Create((int) value);
             }

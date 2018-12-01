@@ -11,7 +11,7 @@ namespace Jint.Native.Function
     {
         private static readonly ParserOptions ParserOptions = new ParserOptions { AdaptRegexp = true, Tolerant = false };
 
-        private FunctionConstructor(Engine engine):base(engine, null, null, false)
+        private FunctionConstructor(Engine engine):base(engine, "Function", null, null, false)
         {
         }
 
@@ -136,12 +136,12 @@ namespace Jint.Native.Function
             var thisArg = arguments[0];
             var argArray = arguments[1];
 
-            if (func == null)
+            if (func is null)
             {
-                ExceptionHelper.ThrowTypeError(Engine);
+                return ExceptionHelper.ThrowTypeError<object>(Engine);
             }
 
-            if (argArray.IsNull() || argArray.IsUndefined())
+            if (argArray.IsNullOrUndefined())
             {
                 return func.Call(thisArg, Arguments.Empty);
             }

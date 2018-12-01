@@ -21,10 +21,12 @@ namespace Jint.Native.Number
 
         public static NumberPrototype CreatePrototypeObject(Engine engine, NumberConstructor numberConstructor)
         {
-            var obj = new NumberPrototype(engine);
-            obj.Prototype = engine.Object.PrototypeObject;
-            obj.NumberData = 0;
-            obj.Extensible = true;
+            var obj = new NumberPrototype(engine)
+            {
+                Prototype = engine.Object.PrototypeObject,
+                NumberData = JsNumber.Create(0),
+                Extensible = true
+            };
 
             obj.FastAddProperty("constructor", numberConstructor, true, false, true);
 
@@ -33,12 +35,12 @@ namespace Jint.Native.Number
 
         public void Configure()
         {
-            FastAddProperty("toString", new ClrFunctionInstance(Engine, ToNumberString), true, false, true);
-            FastAddProperty("toLocaleString", new ClrFunctionInstance(Engine, ToLocaleString), true, false, true);
-            FastAddProperty("valueOf", new ClrFunctionInstance(Engine, ValueOf), true, false, true);
-            FastAddProperty("toFixed", new ClrFunctionInstance(Engine, ToFixed, 1), true, false, true);
-            FastAddProperty("toExponential", new ClrFunctionInstance(Engine, ToExponential), true, false, true);
-            FastAddProperty("toPrecision", new ClrFunctionInstance(Engine, ToPrecision), true, false, true);
+            FastAddProperty("toString", new ClrFunctionInstance(Engine, "toString", ToNumberString), true, false, true);
+            FastAddProperty("toLocaleString", new ClrFunctionInstance(Engine, "toLocaleString", ToLocaleString), true, false, true);
+            FastAddProperty("valueOf", new ClrFunctionInstance(Engine, "valueOf", ValueOf), true, false, true);
+            FastAddProperty("toFixed", new ClrFunctionInstance(Engine, "toFixed", ToFixed, 1), true, false, true);
+            FastAddProperty("toExponential", new ClrFunctionInstance(Engine, "toExponential", ToExponential), true, false, true);
+            FastAddProperty("toPrecision", new ClrFunctionInstance(Engine, "toPrecision", ToPrecision), true, false, true);
         }
 
         private JsValue ToLocaleString(JsValue thisObject, JsValue[] arguments)
@@ -80,13 +82,17 @@ namespace Jint.Native.Number
 
         private JsValue ValueOf(JsValue thisObj, JsValue[] arguments)
         {
-            var number = thisObj.TryCast<NumberInstance>();
-            if (ReferenceEquals(number, null))
+            if (thisObj is NumberInstance ni)
             {
-                ExceptionHelper.ThrowTypeError(Engine);
+                return ni.NumberData;
             }
 
-            return number.NumberData;
+            if (thisObj is JsNumber)
+            {
+                return thisObj;
+            }
+
+            return ExceptionHelper.ThrowTypeError<JsValue>(Engine);
         }
 
         private const double Ten21 = 1e21;
@@ -172,8 +178,8 @@ namespace Jint.Native.Number
                 ExceptionHelper.ThrowTypeError(_engine);
             }
 
-            var radix = arguments.At(0).IsUndefined() 
-                ? 10 
+            var radix = arguments.At(0).IsUndefined()
+                ? 10
                 : (int) TypeConverter.ToInteger(arguments.At(0));
 
             if (radix < 2 || radix > 36)

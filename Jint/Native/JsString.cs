@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Text;
+using Jint.Native.Array;
 using Jint.Runtime;
 
 namespace Jint.Native
@@ -10,7 +11,7 @@ namespace Jint.Native
         private static readonly JsString[] _charToJsValue;
         private static readonly JsString[] _charToStringJsValue;
 
-        private static readonly JsString Empty = new JsString("");
+        public static readonly JsString Empty = new JsString("");
         private static readonly JsString NullString = new JsString("null");
 
         internal string _value;
@@ -57,6 +58,8 @@ namespace Jint.Native
             return string.IsNullOrEmpty(_value);
         }
 
+        public virtual int Length => _value.Length;
+
         internal static JsString Create(string value)
         {
             if (value.Length == 0)
@@ -92,6 +95,17 @@ namespace Jint.Native
         public override string ToString()
         {
             return _value;
+        }
+
+        public ArrayInstance ToArray(Engine engine)
+        {
+            var array = engine.Array.ConstructFast((uint) _value.Length);
+            for (int i = 0; i < _value.Length; ++i)
+            {
+                array.SetIndexValue((uint) i, _value[i], updateLength: false);
+            }
+
+            return array;
         }
 
         public override bool Equals(JsValue obj)
@@ -178,6 +192,8 @@ namespace Jint.Native
                     || _stringBuilder != null && _stringBuilder.Length == 0;
             }
 
+            public override int Length => _stringBuilder?.Length ?? _value?.Length ?? 0;
+
             public override object ToObject()
             {
                 return _stringBuilder.ToString();
@@ -190,15 +206,14 @@ namespace Jint.Native
                     return _stringBuilder.Equals(cs._stringBuilder);
                 }
 
-                if (other.Type == Types.String)
+                if (other is JsString jsString)
                 {
-                    var otherString = other.AsStringWithoutTypeCheck();
-                    if (otherString.Length != _stringBuilder.Length)
+                    if (jsString._value.Length != Length)
                     {
                         return false;
                     }
 
-                    return ToString() == otherString;
+                    return ToString() == jsString._value;
                 }
 
                 return base.Equals(other);

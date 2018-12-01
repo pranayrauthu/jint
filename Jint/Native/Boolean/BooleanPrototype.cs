@@ -27,26 +27,23 @@ namespace Jint.Native.Boolean
 
         public void Configure()
         {
-            FastAddProperty("toString", new ClrFunctionInstance(Engine, ToBooleanString), true, false, true);
-            FastAddProperty("valueOf", new ClrFunctionInstance(Engine, ValueOf), true, false, true);
+            FastAddProperty("toString", new ClrFunctionInstance(Engine, "toString", ToBooleanString, 0, PropertyFlag.Configurable), true, false, true);
+            FastAddProperty("valueOf", new ClrFunctionInstance(Engine, "valueOf", ValueOf, 0, PropertyFlag.Configurable), true, false, true);
         }
 
         private JsValue ValueOf(JsValue thisObj, JsValue[] arguments)
         {
-            var B = thisObj;
-            if (B.IsBoolean())
+            if (thisObj._type == Types.Boolean)
             {
-                return B;
+                return thisObj;
             }
 
-            var o = B.TryCast<BooleanInstance>();
-            if (!ReferenceEquals(o, null))
+            if (thisObj is BooleanInstance bi)
             {
-                return o.PrimitiveValue;
+                return bi.PrimitiveValue;
             }
 
-            ExceptionHelper.ThrowTypeError(Engine);
-            return null;
+            return ExceptionHelper.ThrowTypeError<JsValue>(Engine);
         }
 
         private JsValue ToBooleanString(JsValue thisObj, JsValue[] arguments)

@@ -13,7 +13,7 @@ namespace Jint.Native.Symbol
     public sealed class SymbolConstructor : FunctionInstance, IConstructor
     {
         public SymbolConstructor(Engine engine)
-            : base(engine, null, null, false)
+            : base(engine, "Symbol", null, null, false)
         {
         }
 
@@ -32,13 +32,15 @@ namespace Jint.Native.Symbol
             obj.SetOwnProperty("prototype", new PropertyDescriptor(obj.PrototypeObject, PropertyFlag.AllForbidden));
 
 
+            obj.SetOwnProperty("species", new PropertyDescriptor(GlobalSymbolRegistry.Species, PropertyFlag.AllForbidden));
+
             return obj;
         }
 
         public void Configure()
         {
-            FastAddProperty("for", new ClrFunctionInstance(Engine, For, 1), true, false, true);
-            FastAddProperty("keyFor", new ClrFunctionInstance(Engine, KeyFor, 1), true, false, true);
+            FastAddProperty("for", new ClrFunctionInstance(Engine, "for", For, 1), true, false, true);
+            FastAddProperty("keyFor", new ClrFunctionInstance(Engine, "keyFor", KeyFor, 1), true, false, true);
 
             FastAddProperty("hasInstance", GlobalSymbolRegistry.HasInstance, false, false, false);
             FastAddProperty("isConcatSpreadable", GlobalSymbolRegistry.IsConcatSpreadable, false, false, false);
@@ -64,13 +66,12 @@ namespace Jint.Native.Symbol
                 ? Undefined
                 : TypeConverter.ToString(description);
 
-            var value = new JsSymbol(description.AsString());
-
             if (ReturnOnAbruptCompletion(ref descString))
             {
                 return descString;
             }
 
+            var value = new JsSymbol(TypeConverter.ToString(description));
             return value;
         }
 
@@ -115,10 +116,17 @@ namespace Jint.Native.Symbol
 
         public SymbolInstance Construct(string description)
         {
-            var instance = new SymbolInstance(Engine);
-            instance.Prototype = PrototypeObject;
-            instance.SymbolData = new JsSymbol(description);
-            instance.Extensible = true;
+            return Construct(new JsSymbol(description));
+        }
+
+        public SymbolInstance Construct(JsSymbol symbol)
+        {
+            var instance = new SymbolInstance(Engine)
+            {
+                Prototype = PrototypeObject,
+                SymbolData = symbol,
+                Extensible = true
+            };
 
             return instance;
         }

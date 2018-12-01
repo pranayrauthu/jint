@@ -349,9 +349,10 @@ namespace Jint.Native.Number.Dtoa
         // represent 'w' we can stop. Everything inside the interval low - high
         // represents w. However we have to pay attention to low, high and w's
         // imprecision.
-        private static bool DigitGen(DiyFp low,
-            DiyFp w,
-            DiyFp high,
+        private static bool DigitGen(
+            in DiyFp low,
+            in DiyFp w,
+            in DiyFp high,
             FastDtoaBuilder buffer,
             int mk)
         {
@@ -469,12 +470,18 @@ namespace Jint.Native.Number.Dtoa
             // closest floating-point neighbors. Any number strictly between
             // boundary_minus and boundary_plus will round to v when convert to a double.
             // Grisu3 will never output representations that lie exactly on a boundary.
-            (DiyFp boundaryMinus, DiyFp boundaryPlus) = DoubleHelper.NormalizedBoundaries(bits);
+            var boundaries = DoubleHelper.NormalizedBoundaries(bits);
+            var boundaryMinus = boundaries.Minus;
+            var boundaryPlus = boundaries.Plus;
+
             Debug.Assert(boundaryPlus.E == w.E);
 
-            var (mk, tenMk) = CachedPowers.GetCachedPower(
+            var result = CachedPowers.GetCachedPower(
                 w.E + DiyFp.KSignificandSize,
                 MinimalTargetExponent, MaximalTargetExponent);
+
+            var mk = result.decimalExponent;
+            var tenMk = result.cMk;
 
             Debug.Assert(MinimalTargetExponent <= w.E + tenMk.E +
                          DiyFp.KSignificandSize &&

@@ -10,11 +10,14 @@ using Jint.Native.Date;
 using Jint.Native.Error;
 using Jint.Native.Function;
 using Jint.Native.Global;
+using Jint.Native.Iterator;
 using Jint.Native.Json;
+using Jint.Native.Map;
 using Jint.Native.Math;
 using Jint.Native.Number;
 using Jint.Native.Object;
 using Jint.Native.RegExp;
+using Jint.Native.Set;
 using Jint.Native.String;
 using Jint.Native.Symbol;
 using Jint.Pooling;
@@ -48,7 +51,7 @@ namespace Jint
 
         // cached access
         private readonly bool _isDebugMode;
-        private readonly bool _isStrict;
+        internal readonly bool _isStrict;
         private readonly int _maxStatements;
         private readonly long _memoryLimit;
         private readonly bool _runBeforeStatementChecks;
@@ -56,7 +59,7 @@ namespace Jint
         internal readonly ReferencePool _referencePool;
         internal readonly ArgumentsInstancePool _argumentsInstancePool;
         internal readonly JsValueArrayPool _jsValueArrayPool;
-        
+
         public ITypeConverter ClrTypeConverter;
 
         // cache of types used when resolving CLR type names
@@ -82,6 +85,43 @@ namespace Jint
             { typeof(UInt64), (Engine engine, object v) => JsNumber.Create((UInt64)v) },
             { typeof(System.Text.RegularExpressions.Regex), (Engine engine, object v) => engine.RegExp.Construct((System.Text.RegularExpressions.Regex)v, "") }
         };
+
+        internal struct ClrPropertyDescriptorFactoriesKey : IEquatable<ClrPropertyDescriptorFactoriesKey>
+        {
+            public ClrPropertyDescriptorFactoriesKey(Type type, string propertyName)
+            {
+                Type = type;
+                PropertyName = propertyName;
+            }
+
+            internal readonly Type Type;
+            internal readonly string PropertyName;
+
+            public bool Equals(ClrPropertyDescriptorFactoriesKey other)
+            {
+                return Type == other.Type && PropertyName == other.PropertyName;
+            }
+
+            public override bool Equals(object obj)
+            {
+                if (ReferenceEquals(null, obj))
+                {
+                    return false;
+                }
+                return obj is ClrPropertyDescriptorFactoriesKey other && Equals(other);
+            }
+
+            public override int GetHashCode()
+            {
+                unchecked
+                {
+                    return (Type.GetHashCode() * 397) ^ PropertyName.GetHashCode();
+                }
+            }
+        }
+
+        internal readonly Dictionary<ClrPropertyDescriptorFactoriesKey, Func<Engine, object, PropertyDescriptor>> ClrPropertyDescriptorFactories =
+            new Dictionary<ClrPropertyDescriptorFactoriesKey, Func<Engine, object, PropertyDescriptor>>();
 
         internal JintCallStack CallStack = new JintCallStack();
 
@@ -110,6 +150,9 @@ namespace Jint
 
             Symbol = SymbolConstructor.CreateSymbolConstructor(this);
             Array = ArrayConstructor.CreateArrayConstructor(this);
+            Map = MapConstructor.CreateMapConstructor(this);
+            Set = SetConstructor.CreateSetConstructor(this);
+            Iterator= IteratorConstructor.CreateIteratorConstructor(this);
             String = StringConstructor.CreateStringConstructor(this);
             RegExp = RegExpConstructor.CreateRegExpConstructor(this);
             Number = NumberConstructor.CreateNumberConstructor(this);
@@ -145,6 +188,15 @@ namespace Jint
             Array.Configure();
             Array.PrototypeObject.Configure();
 
+            Map.Configure();
+            Map.PrototypeObject.Configure();
+
+            Set.Configure();
+            Set.PrototypeObject.Configure();
+
+            Iterator.Configure();
+            Iterator.PrototypeObject.Configure();
+
             String.Configure();
             String.PrototypeObject.Configure();
 
@@ -175,23 +227,23 @@ namespace Jint
             Options = new Options();
 
             options?.Invoke(Options);
-            
+
             // gather some options as fields for faster checks
             _isDebugMode = Options.IsDebugMode;
             _isStrict = Options.IsStrict;
             _maxStatements = Options._MaxStatements;
             _referenceResolver = Options.ReferenceResolver;
             _memoryLimit = Options._MemoryLimit;
-            _runBeforeStatementChecks = (_maxStatements > 0 &&_maxStatements < int.MaxValue) 
+            _runBeforeStatementChecks = (_maxStatements > 0 &&_maxStatements < int.MaxValue)
                                         || Options._TimeoutInterval.Ticks > 0
-                                        || _memoryLimit > 0 
+                                        || _memoryLimit > 0
                                         || _isDebugMode;
 
             _referencePool = new ReferencePool();
             _argumentsInstancePool = new ArgumentsInstancePool(this);
             _jsValueArrayPool = new JsValueArrayPool();
 
-            Eval = new EvalFunctionInstance(this, System.Array.Empty<string>(), LexicalEnvironment.NewDeclarativeEnvironment(this, ExecutionContext.LexicalEnvironment), StrictModeScope.IsStrictModeCode);
+            Eval = new EvalFunctionInstance(this, System.ArrayExt.Empty<string>(), LexicalEnvironment.NewDeclarativeEnvironment(this, ExecutionContext.LexicalEnvironment), StrictModeScope.IsStrictModeCode);
             Global.FastAddProperty("eval", Eval, true, false, true);
 
             _statements = new StatementInterpreter(this);
@@ -200,10 +252,10 @@ namespace Jint
             if (Options._IsClrAllowed)
             {
                 Global.FastAddProperty("System", new NamespaceReference(this, "System"), false, false, false);
-                Global.FastAddProperty("importNamespace", new ClrFunctionInstance(this, (thisObj, arguments) =>
-                {
-                    return new NamespaceReference(this, TypeConverter.ToString(arguments.At(0)));
-                }), false, false, false);
+                Global.FastAddProperty("importNamespace", new ClrFunctionInstance(
+                    this,
+                    "importNamespace",
+                    (thisObj, arguments) => new NamespaceReference(this, TypeConverter.ToString(arguments.At(0)))), false, false, false);
             }
 
             ClrTypeConverter = new DefaultTypeConverter(this);
@@ -216,6 +268,9 @@ namespace Jint
         public ObjectConstructor Object { get; }
         public FunctionConstructor Function { get; }
         public ArrayConstructor Array { get; }
+        public MapConstructor Map { get; }
+        public SetConstructor Set { get; }
+        public IteratorConstructor Iterator { get; }
         public StringConstructor String { get; }
         public RegExpConstructor RegExp { get; }
         public BooleanConstructor Boolean { get; }
@@ -364,12 +419,12 @@ namespace Jint
         public Engine Execute(Program program)
         {
             ResetStatementsCount();
-            
+
             if (_memoryLimit > 0)
             {
                 ResetMemoryUsage();
             }
-            
+
             ResetTimeoutTicks();
             ResetLastStatement();
             ResetCallStack();
@@ -442,7 +497,7 @@ namespace Jint
 
                 case Nodes.ExpressionStatement:
                     return new Completion(
-                        CompletionType.Normal, 
+                        CompletionType.Normal,
                         GetValue(EvaluateExpression(((ExpressionStatement) statement).Expression), true),
                         null);
 
@@ -589,7 +644,7 @@ namespace Jint
         {
             return GetValue(value, false);
         }
-        
+
         internal JsValue GetValue(object value, bool returnReferenceToPool)
         {
             if (value is JsValue jsValue)
@@ -658,10 +713,9 @@ namespace Jint
                 }
             }
 
-            var record = (EnvironmentRecord) baseValue;
-            if (ReferenceEquals(record, null))
+            if (!(baseValue is EnvironmentRecord record))
             {
-                ExceptionHelper.ThrowArgumentException();
+                return ExceptionHelper.ThrowArgumentException<JsValue>();
             }
 
             var bindingValue = record.GetBindingValue(reference._name, reference._strict);
@@ -973,7 +1027,7 @@ namespace Jint
         {
             _executionContexts.ReplaceTopLexicalEnvironment(newEnv);
         }
-        
+
         private static void AssertNotNullOrEmpty(string propertyname, string propertyValue)
         {
             if (string.IsNullOrEmpty(propertyValue))

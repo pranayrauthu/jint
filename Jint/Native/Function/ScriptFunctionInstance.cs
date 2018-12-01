@@ -1,6 +1,5 @@
 ﻿using System.Collections.Generic;
 using Esprima.Ast;
-using Jint.Native.Argument;
 using Jint.Native.Object;
 using Jint.Runtime;
 using Jint.Runtime.Descriptors;
@@ -14,11 +13,6 @@ namespace Jint.Native.Function
     /// </summary>
     public sealed class ScriptFunctionInstance : FunctionInstance, IConstructor
     {
-        private const string PropertyNameName = "name";
-        private const int PropertyNameNameLength = 4;
-
-        private PropertyDescriptor _name;
-
         private readonly IFunction _functionDeclaration;
 
         /// <summary>
@@ -28,8 +22,12 @@ namespace Jint.Native.Function
         /// <param name="functionDeclaration"></param>
         /// <param name="scope"></param>
         /// <param name="strict"></param>
-        public ScriptFunctionInstance(Engine engine, IFunction functionDeclaration, LexicalEnvironment scope, bool strict)
-            : base(engine, GetParameterNames(functionDeclaration), scope, strict)
+        public ScriptFunctionInstance(
+            Engine engine, 
+            IFunction functionDeclaration, 
+            LexicalEnvironment scope, 
+            bool strict)
+            : base(engine, functionDeclaration.Id?.Name ?? "", GetParameterNames(functionDeclaration), scope, strict)
         {
             _functionDeclaration = functionDeclaration;
 
@@ -48,7 +46,7 @@ namespace Jint.Native.Function
 
             if (_functionDeclaration.Id != null)
             {
-                _name = new PropertyDescriptor(_functionDeclaration.Id.Name, PropertyFlag.None);
+                DefineOwnProperty("name", new PropertyDescriptor(_functionDeclaration.Id.Name, PropertyFlag.None), false);
             }
 
             if (strict)
@@ -60,61 +58,6 @@ namespace Jint.Native.Function
             }
         }
 
-        public override IEnumerable<KeyValuePair<string, PropertyDescriptor>> GetOwnProperties()
-        {
-            if (_name != null)
-            {
-                yield return new KeyValuePair<string, PropertyDescriptor>(PropertyNameName, _name);
-            }
-
-            foreach (var entry in base.GetOwnProperties())
-            {
-                yield return entry;
-            }
-        }
-
-        public override PropertyDescriptor GetOwnProperty(string propertyName)
-        {
-            if (propertyName.Length == PropertyNameNameLength && propertyName == PropertyNameName)
-            {
-                return _name ?? PropertyDescriptor.Undefined;
-            }
-
-            return base.GetOwnProperty(propertyName);
-        }
-
-        protected internal override void SetOwnProperty(string propertyName, PropertyDescriptor desc)
-        {
-            if (propertyName.Length == PropertyNameNameLength && propertyName == PropertyNameName)
-            {
-                _name = desc;
-            }
-            else
-            {
-                base.SetOwnProperty(propertyName, desc);
-            }
-        }
-
-        public override bool HasOwnProperty(string propertyName)
-        {
-            if (propertyName.Length == PropertyNameNameLength && propertyName == PropertyNameName)
-            {
-                return _name != null;
-            }
-
-            return base.HasOwnProperty(propertyName);
-        }
-
-        public override void RemoveOwnProperty(string propertyName)
-        {
-            if (propertyName.Length == PropertyNameNameLength && propertyName == PropertyNameName)
-            {
-                _name = null;
-            }
-
-            base.RemoveOwnProperty(propertyName);
-        }
-
         private static string[] GetParameterNames(IFunction functionDeclaration)
         {
             var list = functionDeclaration.Params;
@@ -122,7 +65,7 @@ namespace Jint.Native.Function
 
             if (count == 0)
             {
-                return System.Array.Empty<string>();
+                return System.ArrayExt.Empty<string>();
             }
 
             var names = new string[count];
@@ -142,7 +85,8 @@ namespace Jint.Native.Function
         /// <returns></returns>
         public override JsValue Call(JsValue thisArg, JsValue[] arguments)
         {
-            using (new StrictModeScope(Strict, true))
+            var strict = Strict || _engine._isStrict;
+            using (new StrictModeScope(strict, true))
             {
                 // setup new execution context http://www.ecma-international.org/ecma-262/5.1/#sec-10.4.3
                 JsValue thisBinding;
@@ -180,12 +124,10 @@ namespace Jint.Native.Function
                     
                     var value = result.GetValueOrDefault();
                     
-                    // we can safely release arguments if they don't escape the scope
-                    if (argumentInstanceRented
-                        && _engine.ExecutionContext.LexicalEnvironment?._record is DeclarativeEnvironmentRecord der
-                        && !(result.Value is ArgumentsInstance))
+                    if (argumentInstanceRented)
                     {
-                        der.ReleaseArguments();
+                        _engine.ExecutionContext.LexicalEnvironment?._record?.FunctionWasCalled();
+                        _engine.ExecutionContext.VariableEnvironment?._record?.FunctionWasCalled();
                     }
 
                     if (result.Type == CompletionType.Throw)
