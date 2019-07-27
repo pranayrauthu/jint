@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using Jint.Native;
+using Jint.Native.Object;
 using Jint.Runtime.Interop;
 
 namespace Jint
@@ -14,11 +15,14 @@ namespace Jint
         private bool _strict;
         private bool _allowDebuggerStatement;
         private bool _allowClr;
+        private bool _allowClrWrite = true;
         private readonly List<IObjectConverter> _objectConverters = new List<IObjectConverter>();
+        private Func<object, ObjectInstance> _wrapObjectHandler;
         private int _maxStatements;
         private long _memoryLimit;
         private int _maxRecursionDepth = -1;
         private TimeSpan _timeoutInterval;
+        private TimeSpan? _regexTimeoutInterval;
         private CultureInfo _culture = CultureInfo.CurrentCulture;
         private TimeZoneInfo _localTimeZone = TimeZoneInfo.Local;
         private List<Assembly> _lookupAssemblies = new List<Assembly>();
@@ -76,6 +80,17 @@ namespace Jint
         }
 
         /// <summary>
+        /// If no known type could be guessed, objects are normally wrapped as an
+        /// ObjectInstance using class ObjectWrapper. This function can be used to
+        /// register a handler for a customized handling.
+        /// </summary>
+        public Options SetWrapObjectHandler(Func<object, ObjectInstance> wrapObjectHandler)
+        {
+            _wrapObjectHandler = wrapObjectHandler;
+            return this;
+        }
+
+        /// <summary>
         /// Allows scripts to call CLR types directly like <example>System.IO.File</example>
         /// </summary>
         public Options AllowClr(params Assembly[] assemblies)
@@ -83,6 +98,12 @@ namespace Jint
             _allowClr = true;
             _lookupAssemblies.AddRange(assemblies);
             _lookupAssemblies = _lookupAssemblies.Distinct().ToList();
+            return this;
+        }
+
+        public Options AllowClrWrite(bool allow = true)
+        {
+            _allowClrWrite = allow;
             return this;
         }
 
@@ -122,6 +143,12 @@ namespace Jint
         public Options TimeoutInterval(TimeSpan timeoutInterval)
         {
             _timeoutInterval = timeoutInterval;
+            return this;
+        }
+
+        public Options RegexTimeoutInterval(TimeSpan regexTimeoutInterval)
+        {
+            _regexTimeoutInterval = regexTimeoutInterval;
             return this;
         }
 
@@ -168,11 +195,15 @@ namespace Jint
 
         internal bool _IsClrAllowed => _allowClr;
 
+        internal bool _IsClrWriteAllowed => _allowClrWrite;
+
         internal Predicate<Exception> _ClrExceptionsHandler => _clrExceptionsHandler;
 
         internal List<Assembly> _LookupAssemblies => _lookupAssemblies;
 
         internal List<IObjectConverter> _ObjectConverters => _objectConverters;
+
+        internal Func<object, ObjectInstance> _WrapObjectHandler => _wrapObjectHandler;
 
         internal long _MemoryLimit => _memoryLimit;
 
@@ -181,6 +212,8 @@ namespace Jint
         internal int MaxRecursionDepth => _maxRecursionDepth;
 
         internal TimeSpan _TimeoutInterval => _timeoutInterval;
+
+        internal TimeSpan _RegexTimeoutInterval => _regexTimeoutInterval ?? _timeoutInterval;
 
         internal CultureInfo _Culture => _culture;
 

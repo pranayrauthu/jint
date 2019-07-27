@@ -1,4 +1,5 @@
-﻿using Jint.Runtime;
+﻿using Jint.Collections;
+using Jint.Runtime;
 using Jint.Runtime.Descriptors;
 using Jint.Runtime.Interop;
 
@@ -6,32 +7,40 @@ namespace Jint.Native.Object
 {
     public sealed class ObjectPrototype : ObjectInstance
     {
+        private ObjectConstructor _objectConstructor;
+
         private ObjectPrototype(Engine engine) : base(engine)
         {
         }
 
         public static ObjectPrototype CreatePrototypeObject(Engine engine, ObjectConstructor objectConstructor)
         {
-            var obj = new ObjectPrototype(engine) { Extensible = true };
-
-            obj.FastAddProperty("constructor", objectConstructor, true, false, true);
+            var obj = new ObjectPrototype(engine)
+            {
+                Extensible = true,
+                _objectConstructor = objectConstructor
+            };
 
             return obj;
         }
 
-        public void Configure()
+        protected override void Initialize()
         {
-            FastAddProperty("toString", new ClrFunctionInstance(Engine, "toString", ToObjectString), true, false, true);
-            FastAddProperty("toLocaleString", new ClrFunctionInstance(Engine, "toLocaleString", ToLocaleString), true, false, true);
-            FastAddProperty("valueOf", new ClrFunctionInstance(Engine, "valueOF", ValueOf), true, false, true);
-            FastAddProperty("hasOwnProperty", new ClrFunctionInstance(Engine, "hasOwnProperty", HasOwnProperty, 1), true, false, true);
-            FastAddProperty("isPrototypeOf", new ClrFunctionInstance(Engine, "isPrototypeOf", IsPrototypeOf, 1), true, false, true);
-            FastAddProperty("propertyIsEnumerable", new ClrFunctionInstance(Engine, "propertyIsEnumerable", PropertyIsEnumerable, 1), true, false, true);
+            _properties = new StringDictionarySlim<PropertyDescriptor>(8)
+            {
+                ["constructor"] = new PropertyDescriptor(_objectConstructor, true, false, true),
+                ["toString"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "toString", ToObjectString), true, false, true),
+                ["toLocaleString"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "toLocaleString", ToLocaleString), true, false, true),
+                ["valueOf"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "valueOF", ValueOf), true, false, true),
+                ["hasOwnProperty"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "hasOwnProperty", HasOwnProperty, 1), true, false, true),
+                ["isPrototypeOf"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "isPrototypeOf", IsPrototypeOf, 1), true, false, true),
+                ["propertyIsEnumerable"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "propertyIsEnumerable", PropertyIsEnumerable, 1), true, false, true)
+            };
         }
 
         private JsValue PropertyIsEnumerable(JsValue thisObject, JsValue[] arguments)
         {
-            var p = TypeConverter.ToString(arguments[0]);
+            var p = TypeConverter.ToPropertyKey(arguments[0]);
             var o = TypeConverter.ToObject(Engine, thisObject);
             var desc = o.GetOwnProperty(p);
             if (desc == PropertyDescriptor.Undefined)
@@ -111,12 +120,9 @@ namespace Jint.Native.Object
         /// <summary>
         /// http://www.ecma-international.org/ecma-262/5.1/#sec-15.2.4.5
         /// </summary>
-        /// <param name="thisObject"></param>
-        /// <param name="arguments"></param>
-        /// <returns></returns>
         public JsValue HasOwnProperty(JsValue thisObject, JsValue[] arguments)
         {
-            var p = TypeConverter.ToString(arguments[0]);
+            var p = TypeConverter.ToPropertyKey(arguments[0]);
             var o = TypeConverter.ToObject(Engine, thisObject);
             var desc = o.GetOwnProperty(p);
             return desc != PropertyDescriptor.Undefined;

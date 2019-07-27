@@ -47,19 +47,7 @@ namespace Jint.Native.Argument
             _initialized = false;
         }
 
-        protected override void EnsureInitialized()
-        {
-            if (_initialized)
-            {
-                return;
-            }
-
-            _initialized = true;
-
-            BuildProperties();
-        }
-
-        private void BuildProperties()
+        protected override void Initialize()
         {
             var args = _args;
             SetOwnProperty("length", new PropertyDescriptor(args.Length, PropertyFlag.NonEnumerable));
@@ -97,10 +85,8 @@ namespace Jint.Native.Argument
             // step 14
             else
             {
-                var thrower = Engine.Function.ThrowTypeError;
-                const PropertyFlag flags = PropertyFlag.EnumerableSet | PropertyFlag.ConfigurableSet;
-                DefineOwnProperty("caller", new GetSetPropertyDescriptor(get: thrower, set: thrower, flags), false);
-                DefineOwnProperty("callee", new GetSetPropertyDescriptor(get: thrower, set: thrower, flags), false);
+                DefineOwnProperty("caller", _engine._getSetThrower, false);
+                DefineOwnProperty("callee", _engine._getSetThrower, false);
             }
         }
 
@@ -118,10 +104,9 @@ namespace Jint.Native.Argument
                     return desc;
                 }
 
-                var isMapped = ParameterMap.GetOwnProperty(propertyName);
-                if (isMapped != PropertyDescriptor.Undefined)
+                if (ParameterMap.TryGetValue(propertyName, out var jsValue) && !jsValue.IsUndefined())
                 {
-                    desc.Value = ParameterMap.Get(propertyName);
+                    desc.Value = jsValue;
                 }
 
                 return desc;
@@ -173,6 +158,12 @@ namespace Jint.Native.Argument
 
         public override bool DefineOwnProperty(string propertyName, PropertyDescriptor desc, bool throwOnError)
         {
+            if (_func is ScriptFunctionInstance scriptFunctionInstance && scriptFunctionInstance._function._hasRestParameter)
+            {
+                // immutable
+                return false;
+            }
+
             EnsureInitialized();
 
             if (!_strict && !ReferenceEquals(ParameterMap, null))

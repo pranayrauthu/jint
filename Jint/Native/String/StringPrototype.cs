@@ -1,10 +1,14 @@
 ﻿using System;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text;
+using Jint.Collections;
 using Jint.Native.Array;
 using Jint.Native.Function;
 using Jint.Native.Object;
 using Jint.Native.RegExp;
+using Jint.Native.Symbol;
+using Jint.Pooling;
 using Jint.Runtime;
 using Jint.Runtime.Descriptors;
 using Jint.Runtime.Interop;
@@ -16,6 +20,8 @@ namespace Jint.Native.String
     /// </summary>
     public sealed class StringPrototype : StringInstance
     {
+        private StringConstructor _stringConstructor;
+
         private StringPrototype(Engine engine)
             : base(engine)
         {
@@ -23,41 +29,62 @@ namespace Jint.Native.String
 
         public static StringPrototype CreatePrototypeObject(Engine engine, StringConstructor stringConstructor)
         {
-            var obj = new StringPrototype(engine);
-            obj.Prototype = engine.Object.PrototypeObject;
-            obj.PrimitiveValue = JsString.Empty;
-            obj.Extensible = true;
-            obj.SetOwnProperty("length", new PropertyDescriptor(0, PropertyFlag.AllForbidden));
-            obj.SetOwnProperty("constructor", new PropertyDescriptor(stringConstructor, PropertyFlag.NonEnumerable));
+            var obj = new StringPrototype(engine)
+            {
+                Prototype = engine.Object.PrototypeObject,
+                PrimitiveValue = JsString.Empty,
+                Extensible = true,
+                _length = PropertyDescriptor.AllForbiddenDescriptor.NumberZero,
+                _stringConstructor = stringConstructor,
+            };
 
             return obj;
         }
 
-        public void Configure()
+        protected override void Initialize()
         {
-            FastAddProperty("toString", new ClrFunctionInstance(Engine, "toString", ToStringString), true, false, true);
-            FastAddProperty("valueOf", new ClrFunctionInstance(Engine, "valueOF", ValueOf), true, false, true);
-            FastAddProperty("charAt", new ClrFunctionInstance(Engine, "charAt", CharAt, 1), true, false, true);
-            FastAddProperty("charCodeAt", new ClrFunctionInstance(Engine, "charCodeAt", CharCodeAt, 1), true, false, true);
-            FastAddProperty("concat", new ClrFunctionInstance(Engine, "concat", Concat, 1), true, false, true);
-            FastAddProperty("indexOf", new ClrFunctionInstance(Engine, "indexOf", IndexOf, 1), true, false, true);
-            FastAddProperty("startsWith", new ClrFunctionInstance(Engine, "startsWith", StartsWith, 1), true, false, true);
-            FastAddProperty("lastIndexOf", new ClrFunctionInstance(Engine, "lastIndexOf", LastIndexOf, 1), true, false, true);
-            FastAddProperty("localeCompare", new ClrFunctionInstance(Engine, "localeCompare", LocaleCompare, 1), true, false, true);
-            FastAddProperty("match", new ClrFunctionInstance(Engine, "match", Match, 1), true, false, true);
-            FastAddProperty("replace", new ClrFunctionInstance(Engine, "replace", Replace, 2), true, false, true);
-            FastAddProperty("search", new ClrFunctionInstance(Engine, "search", Search, 1), true, false, true);
-            FastAddProperty("slice", new ClrFunctionInstance(Engine, "slice", Slice, 2), true, false, true);
-            FastAddProperty("split", new ClrFunctionInstance(Engine, "split", Split, 2), true, false, true);
-            FastAddProperty("substr", new ClrFunctionInstance(Engine, "substr", Substr, 2), true, false, true);
-            FastAddProperty("substring", new ClrFunctionInstance(Engine, "substring", Substring, 2), true, false, true);
-            FastAddProperty("toLowerCase", new ClrFunctionInstance(Engine, "toLowerCase", ToLowerCase), true, false, true);
-            FastAddProperty("toLocaleLowerCase", new ClrFunctionInstance(Engine, "toLocaleLowerCase", ToLocaleLowerCase), true, false, true);
-            FastAddProperty("toUpperCase", new ClrFunctionInstance(Engine, "toUpperCase", ToUpperCase), true, false, true);
-            FastAddProperty("toLocaleUpperCase", new ClrFunctionInstance(Engine, "toLocaleUpperCase", ToLocaleUpperCase), true, false, true);
-            FastAddProperty("trim", new ClrFunctionInstance(Engine, "trim", Trim), true, false, true);
-            FastAddProperty("padStart", new ClrFunctionInstance(Engine, "padStart", PadStart), true, false, true);
-            FastAddProperty("padEnd", new ClrFunctionInstance(Engine, "padEnd", PadEnd), true, false, true);
+            _properties = new StringDictionarySlim<PropertyDescriptor>(40)
+            {
+                ["constructor"] = new PropertyDescriptor(_stringConstructor, PropertyFlag.NonEnumerable),
+                ["toString"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "toString", ToStringString, 0, PropertyFlag.Configurable), true, false, true),
+                ["valueOf"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "valueOf", ValueOf, 0, PropertyFlag.Configurable), true, false, true),
+                ["charAt"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "charAt", CharAt, 1, PropertyFlag.Configurable), true, false, true),
+                ["charCodeAt"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "charCodeAt", CharCodeAt, 1, PropertyFlag.Configurable), true, false, true),
+                ["codePointAt"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "codePointAt", CodePointAt, 1, PropertyFlag.Configurable), true, false, true),
+                ["concat"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "concat", Concat, 1, PropertyFlag.Configurable), true, false, true),
+                ["indexOf"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "indexOf", IndexOf, 1, PropertyFlag.Configurable), true, false, true),
+                ["endsWith"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "endsWith", EndsWith, 1, PropertyFlag.Configurable), true, false, true),
+                ["startsWith"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "startsWith", StartsWith, 1, PropertyFlag.Configurable), true, false, true),
+                ["lastIndexOf"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "lastIndexOf", LastIndexOf, 1, PropertyFlag.Configurable), true, false, true),
+                ["localeCompare"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "localeCompare", LocaleCompare, 1, PropertyFlag.Configurable), true, false, true),
+                ["match"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "match", Match, 1, PropertyFlag.Configurable), true, false, true),
+                ["replace"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "replace", Replace, 2, PropertyFlag.Configurable), true, false, true),
+                ["search"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "search", Search, 1, PropertyFlag.Configurable), true, false, true),
+                ["slice"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "slice", Slice, 2, PropertyFlag.Configurable), true, false, true),
+                ["split"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "split", Split, 2, PropertyFlag.Configurable), true, false, true),
+                ["substr"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "substr", Substr, 2), true, false, true),
+                ["substring"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "substring", Substring, 2, PropertyFlag.Configurable), true, false, true),
+                ["toLowerCase"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "toLowerCase", ToLowerCase, 0, PropertyFlag.Configurable), true, false, true),
+                ["toLocaleLowerCase"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "toLocaleLowerCase", ToLocaleLowerCase, 0, PropertyFlag.Configurable), true, false, true),
+                ["toUpperCase"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "toUpperCase", ToUpperCase, 0, PropertyFlag.Configurable), true, false, true),
+                ["toLocaleUpperCase"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "toLocaleUpperCase", ToLocaleUpperCase, 0, PropertyFlag.Configurable), true, false, true),
+                ["trim"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "trim", Trim, 0, PropertyFlag.Configurable), true, false, true),
+                ["trimStart"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "trimStart", TrimStart, 0, PropertyFlag.Configurable), true, false, true),
+                ["trimEnd"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "trimEnd", TrimEnd, 0, PropertyFlag.Configurable), true, false, true),
+                ["padStart"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "padStart", PadStart, 1, PropertyFlag.Configurable), true, false, true),
+                ["padEnd"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "padEnd", PadEnd, 1, PropertyFlag.Configurable), true, false, true),
+                ["includes"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "includes", Includes, 1, PropertyFlag.Configurable), true, false, true),
+                ["normalize"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "normalize", Normalize, 0, PropertyFlag.Configurable), true, false, true),
+                ["repeat"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "repeat", Repeat, 1, PropertyFlag.Configurable), true, false, true),
+                [GlobalSymbolRegistry.Iterator._value] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "[Symbol.iterator]", Iterator, 0, PropertyFlag.Configurable), true, false, true)
+            };
+        }
+
+        private ObjectInstance Iterator(JsValue thisObj, JsValue[] arguments)
+        {
+            TypeConverter.CheckObjectCoercible(_engine, thisObj);
+            var str = TypeConverter.ToString(thisObj);
+            return _engine.Iterator.Construct(str);
         }
 
         private JsValue ToStringString(JsValue thisObj, JsValue[] arguments)
@@ -74,16 +101,11 @@ namespace Jint.Native.String
         // http://msdn.microsoft.com/en-us/library/system.char.iswhitespace(v=vs.110).aspx
         // http://en.wikipedia.org/wiki/Byte_order_mark
         const char BOM_CHAR = '\uFEFF';
-        const char MONGOLIAN_VOWEL_SEPARATOR = '\u180E';
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static bool IsWhiteSpaceEx(char c, bool acceptMongolianVowelSeparator = true)
+        internal static bool IsWhiteSpaceEx(char c)
         {
-            return
-                char.IsWhiteSpace(c) ||
-                c == BOM_CHAR ||
-                // In .NET 4.6 this was removed from WS based on Unicode 6.3 changes
-                (acceptMongolianVowelSeparator && c == MONGOLIAN_VOWEL_SEPARATOR);
+            return char.IsWhiteSpace(c) || c == BOM_CHAR;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -113,12 +135,12 @@ namespace Jint.Native.String
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static string TrimStartEx(string s, bool acceptMongolianVowelSeparator = true)
+        public static string TrimStartEx(string s)
         {
             if (s.Length == 0)
                 return string.Empty;
 
-            if (!IsWhiteSpaceEx(s[0], acceptMongolianVowelSeparator))
+            if (!IsWhiteSpaceEx(s[0]))
                 return s;
 
             return TrimStart(s);
@@ -139,9 +161,9 @@ namespace Jint.Native.String
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static string TrimEx(string s, bool acceptMongolianVowelSeparator = true)
+        public static string TrimEx(string s)
         {
-            return TrimEndEx(TrimStartEx(s, acceptMongolianVowelSeparator));
+            return TrimEndEx(TrimStartEx(s));
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -152,26 +174,44 @@ namespace Jint.Native.String
             return TrimEx(s);
         }
 
-        private static JsValue ToLocaleUpperCase(JsValue thisObj, JsValue[] arguments)
+        private JsValue TrimStart(JsValue thisObj, JsValue[] arguments)
         {
+            TypeConverter.CheckObjectCoercible(Engine, thisObj);
+            var s = TypeConverter.ToString(thisObj);
+            return TrimStartEx(s);
+        }
+
+        private JsValue TrimEnd(JsValue thisObj, JsValue[] arguments)
+        {
+            TypeConverter.CheckObjectCoercible(Engine, thisObj);
+            var s = TypeConverter.ToString(thisObj);
+            return TrimEndEx(s);
+        }
+
+        private JsValue ToLocaleUpperCase(JsValue thisObj, JsValue[] arguments)
+        {
+            TypeConverter.CheckObjectCoercible(_engine, thisObj);
             var s = TypeConverter.ToString(thisObj);
             return s.ToUpper();
         }
 
-        private static JsValue ToUpperCase(JsValue thisObj, JsValue[] arguments)
+        private JsValue ToUpperCase(JsValue thisObj, JsValue[] arguments)
         {
+            TypeConverter.CheckObjectCoercible(_engine, thisObj);
             var s = TypeConverter.ToString(thisObj);
             return s.ToUpperInvariant();
         }
 
-        private static JsValue ToLocaleLowerCase(JsValue thisObj, JsValue[] arguments)
+        private JsValue ToLocaleLowerCase(JsValue thisObj, JsValue[] arguments)
         {
+            TypeConverter.CheckObjectCoercible(_engine, thisObj);
             var s = TypeConverter.ToString(thisObj);
             return s.ToLower();
         }
 
-        private static JsValue ToLowerCase(JsValue thisObj, JsValue[] arguments)
+        private JsValue ToLowerCase(JsValue thisObj, JsValue[] arguments)
         {
+            TypeConverter.CheckObjectCoercible(_engine, thisObj);
             var s = TypeConverter.ToString(thisObj);
             return s.ToLowerInvariant();
         }
@@ -231,7 +271,7 @@ namespace Jint.Native.String
             return s.Substring(from, length);
         }
 
-        private static JsValue Substr(JsValue thisObj, JsValue[] arguments)
+        private JsValue Substr(JsValue thisObj, JsValue[] arguments)
         {
             var s = TypeConverter.ToString(thisObj);
             var start = TypeConverter.ToInteger(arguments.At(0));
@@ -412,8 +452,8 @@ namespace Jint.Native.String
             }
 
             var len = s.Length;
-            var intStart = (int)TypeConverter.ToInteger(start);
-            var intEnd = arguments.At(1).IsUndefined() ? len : (int)TypeConverter.ToInteger(end);
+            var intStart = (int) start;
+            var intEnd = arguments.At(1).IsUndefined() ? len : (int) TypeConverter.ToInteger(end);
             var from = intStart < 0 ? System.Math.Max(len + intStart, 0) : System.Math.Min(intStart, len);
             var to = intEnd < 0 ? System.Math.Max(len + intEnd, 0) : System.Math.Min(intEnd, len);
             var span = System.Math.Max(to - from, 0);
@@ -489,62 +529,64 @@ namespace Jint.Native.String
                     // $`	Inserts the portion of the string that precedes the matched substring.
                     // $'	Inserts the portion of the string that follows the matched substring.
                     // $n or $nn	Where n or nn are decimal digits, inserts the nth parenthesized submatch string, provided the first argument was a RegExp object.
-                    var replacementBuilder = StringExecutionContext.Current.GetStringBuilder(0);
-                    replacementBuilder.Clear();
-                    for (int i = 0; i < replaceString.Length; i++)
+                    using (var replacementBuilder = StringBuilderPool.Rent())
                     {
-                        char c = replaceString[i];
-                        if (c == '$' && i < replaceString.Length - 1)
+                        for (int i = 0; i < replaceString.Length; i++)
                         {
-                            c = replaceString[++i];
-                            if (c == '$')
-                                replacementBuilder.Append('$');
-                            else if (c == '&')
-                                replacementBuilder.Append(matchValue);
-                            else if (c == '`')
-                                replacementBuilder.Append(thisString.Substring(0, matchIndex));
-                            else if (c == '\'')
-                                replacementBuilder.Append(thisString.Substring(matchIndex + matchValue.Length));
-                            else if (c >= '0' && c <= '9')
+                            char c = replaceString[i];
+                            if (c == '$' && i < replaceString.Length - 1)
                             {
-                                int matchNumber1 = c - '0';
-
-                                // The match number can be one or two digits long.
-                                int matchNumber2 = 0;
-                                if (i < replaceString.Length - 1 && replaceString[i + 1] >= '0' && replaceString[i + 1] <= '9')
-                                    matchNumber2 = matchNumber1 * 10 + (replaceString[i + 1] - '0');
-
-                                // Try the two digit capture first.
-                                if (matchNumber2 > 0 && matchNumber2 < args.Length - 2)
+                                c = replaceString[++i];
+                                if (c == '$')
+                                    replacementBuilder.Builder.Append('$');
+                                else if (c == '&')
+                                    replacementBuilder.Builder.Append(matchValue);
+                                else if (c == '`')
+                                    replacementBuilder.Builder.Append(thisString.Substring(0, matchIndex));
+                                else if (c == '\'')
+                                    replacementBuilder.Builder.Append(thisString.Substring(matchIndex + matchValue.Length));
+                                else if (c >= '0' && c <= '9')
                                 {
-                                    // Two digit capture replacement.
-                                    replacementBuilder.Append(TypeConverter.ToString(args[matchNumber2]));
-                                    i++;
-                                }
-                                else if (matchNumber1 > 0 && matchNumber1 < args.Length - 2)
-                                {
-                                    // Single digit capture replacement.
-                                    replacementBuilder.Append(TypeConverter.ToString(args[matchNumber1]));
+                                    int matchNumber1 = c - '0';
+
+                                    // The match number can be one or two digits long.
+                                    int matchNumber2 = 0;
+                                    if (i < replaceString.Length - 1 && replaceString[i + 1] >= '0' && replaceString[i + 1] <= '9')
+                                        matchNumber2 = matchNumber1 * 10 + (replaceString[i + 1] - '0');
+
+                                    // Try the two digit capture first.
+                                    if (matchNumber2 > 0 && matchNumber2 < args.Length - 2)
+                                    {
+                                        // Two digit capture replacement.
+                                        replacementBuilder.Builder.Append(TypeConverter.ToString(args[matchNumber2]));
+                                        i++;
+                                    }
+                                    else if (matchNumber1 > 0 && matchNumber1 < args.Length - 2)
+                                    {
+                                        // Single digit capture replacement.
+                                        replacementBuilder.Builder.Append(TypeConverter.ToString(args[matchNumber1]));
+                                    }
+                                    else
+                                    {
+                                        // Capture does not exist.
+                                        replacementBuilder.Builder.Append('$');
+                                        i--;
+                                    }
                                 }
                                 else
                                 {
-                                    // Capture does not exist.
-                                    replacementBuilder.Append('$');
-                                    i--;
+                                    // Unknown replacement pattern.
+                                    replacementBuilder.Builder.Append('$');
+                                    replacementBuilder.Builder.Append(c);
                                 }
                             }
                             else
-                            {
-                                // Unknown replacement pattern.
-                                replacementBuilder.Append('$');
-                                replacementBuilder.Append(c);
-                            }
+                                replacementBuilder.Builder.Append(c);
                         }
-                        else
-                            replacementBuilder.Append(c);
+
+                        return replacementBuilder.ToString();
                     }
 
-                    return replacementBuilder.ToString();
                 });
             }
 
@@ -607,12 +649,14 @@ namespace Jint.Native.String
                 _engine._jsValueArrayPool.ReturnArray(args);
 
                 // Replace only the first match.
-                var result = StringExecutionContext.Current.GetStringBuilder(thisString.Length + (substr.Length - substr.Length));
-                result.Clear();
-                result.Append(thisString, 0, start);
-                result.Append(replaceString);
-                result.Append(thisString, end, thisString.Length - end);
-                return result.ToString();
+                using (var result = StringBuilderPool.Rent())
+                {
+                    result.Builder.EnsureCapacity(thisString.Length + (substr.Length - substr.Length));
+                    result.Builder.Append(thisString, 0, start);
+                    result.Builder.Append(replaceString);
+                    result.Builder.Append(thisString, end, thisString.Length - end);
+                    return result.ToString();
+                }
             }
         }
 
@@ -636,7 +680,7 @@ namespace Jint.Native.String
             {
                 rx.Put("lastIndex", 0, false);
                 var a = (ArrayInstance) Engine.Array.Construct(Arguments.Empty);
-                double previousLastIndex = 0;
+                int previousLastIndex = 0;
                 uint n = 0;
                 var lastMatch = true;
                 while (lastMatch)
@@ -648,11 +692,11 @@ namespace Jint.Native.String
                     }
                     else
                     {
-                        var thisIndex = ((JsNumber) rx.Get("lastIndex"))._value;
+                        var thisIndex = (int) ((JsNumber) rx.Get("lastIndex"))._value;
                         if (thisIndex == previousLastIndex)
                         {
                             rx.Put("lastIndex", thisIndex + 1, false);
-                            previousLastIndex = thisIndex;
+                            previousLastIndex = thisIndex + 1;
                         }
 
                         var matchStr = result.Get("0");
@@ -794,9 +838,33 @@ namespace Jint.Native.String
             var position = (int)TypeConverter.ToInteger(pos);
             if (position < 0 || position >= s.Length)
             {
-                return double.NaN;
+                return JsNumber.DoubleNaN;
             }
             return (double) s[position];
+        }
+
+        private JsValue CodePointAt(JsValue thisObj, JsValue[] arguments)
+        {
+            TypeConverter.CheckObjectCoercible(Engine, thisObj);
+
+            JsValue pos = arguments.Length > 0 ? arguments[0] : 0;
+            var s = TypeConverter.ToString(thisObj);
+            var position = (int)TypeConverter.ToInteger(pos);
+            if (position < 0 || position >= s.Length)
+            {
+                return Undefined;
+            }
+
+            var first = (double) s[position];
+            if (first >= 0xD800 && first <= 0xDBFF && s.Length > position + 1)
+            {
+                double second = s[position + 1];
+                if (second >= 0xDC00 && second <= 0xDFFF)
+                {
+                    return (first - 0xD800) * 0x400 + second - 0xDC00 + 0x10000;
+                }
+            }
+            return first;
         }
 
         private JsValue CharAt(JsValue thisObj, JsValue[] arguments)
@@ -860,10 +928,14 @@ namespace Jint.Native.String
         {
             TypeConverter.CheckObjectCoercible(Engine, thisObj);
             var targetLength = TypeConverter.ToInt32(arguments.At(0));
-            var padString = TypeConverter.ToString(arguments.At(1, " "));
+            var padStringValue = arguments.At(1);
+
+            var padString = padStringValue.IsUndefined()
+                ? " "
+                : TypeConverter.ToString(padStringValue);
 
             var s = TypeConverter.ToString(thisObj);
-            if (s.Length > targetLength)
+            if (s.Length > targetLength || padString.Length == 0)
             {
                 return s;
             }
@@ -874,15 +946,14 @@ namespace Jint.Native.String
                 padString = string.Join("", Enumerable.Repeat(padString, (targetLength / padString.Length) + 1));
             }
 
-            return padStart ? $"{padString.Substring(0, targetLength)}{s}" : $"{s}{padString.Substring(0, targetLength)}";
+            return padStart
+                ? $"{padString.Substring(0, targetLength)}{s}"
+                : $"{s}{padString.Substring(0, targetLength)}";
         }
 
         /// <summary>
         /// https://www.ecma-international.org/ecma-262/6.0/#sec-string.prototype.startswith
         /// </summary>
-        /// <param name="thisObj"></param>
-        /// <param name="arguments"></param>
-        /// <returns></returns>
         private JsValue StartsWith(JsValue thisObj, JsValue[] arguments)
         {
             TypeConverter.CheckObjectCoercible(Engine, thisObj);
@@ -923,6 +994,160 @@ namespace Jint.Native.String
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// https://www.ecma-international.org/ecma-262/6.0/#sec-string.prototype.endswith
+        /// </summary>
+        private JsValue EndsWith(JsValue thisObj, JsValue[] arguments)
+        {
+            TypeConverter.CheckObjectCoercible(Engine, thisObj);
+
+            var s = TypeConverter.ToString(thisObj);
+
+            var searchString = arguments.At(0);
+            if (ReferenceEquals(searchString, Null))
+            {
+                searchString = Native.Null.Text;
+            }
+            else
+            {
+                if (searchString.IsRegExp())
+                {
+                    ExceptionHelper.ThrowTypeError(Engine);
+                }
+            }
+
+            var searchStr = TypeConverter.ToString(searchString);
+
+            var len = s.Length;
+            var pos = TypeConverter.ToInt32(arguments.At(1, len));
+            var end = System.Math.Min(System.Math.Max(pos, 0), len);
+            var searchLength = searchStr.Length;
+            var start = end - searchLength;
+
+            if (start < 0)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < searchLength; i++)
+            {
+                if (s[start + i] != searchStr[i])
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private JsValue Includes(JsValue thisObj, JsValue[] arguments)
+        {
+            TypeConverter.CheckObjectCoercible(Engine, thisObj);
+
+            var s1 = TypeConverter.ToString(thisObj);
+            var searchString = arguments.At(0);
+
+            if (searchString.IsRegExp())
+            {
+                return ExceptionHelper.ThrowTypeError<JsValue>(_engine, "First argument to String.prototype.includes must not be a regular expression");
+            }
+
+            var searchStr = TypeConverter.ToString(searchString);
+            double pos = 0;
+            if (arguments.Length > 1 && !arguments[1].IsUndefined())
+            {
+                pos = TypeConverter.ToInteger(arguments[1]);
+            }
+
+            if (searchStr.Length == 0)
+            {
+                return true;
+            }
+
+            if (pos >= s1.Length)
+            {
+                return false;
+            }
+
+            if (pos < 0)
+            {
+                pos = 0;
+            }
+
+            return s1.IndexOf(searchStr, (int) pos, StringComparison.Ordinal) > -1;
+        }
+
+        private JsValue Normalize(JsValue thisObj, JsValue[] arguments)
+        {
+            TypeConverter.CheckObjectCoercible(Engine, thisObj);
+            var str = TypeConverter.ToString(thisObj);
+
+            var param = arguments.At(0);
+
+            var form = "NFC";
+           if (!param.IsUndefined())
+           {
+               form = TypeConverter.ToString(param);
+           }
+
+            var nf = NormalizationForm.FormC;
+            switch (form)
+            {
+                case "NFC":
+                    nf = NormalizationForm.FormC;
+                    break;
+                case "NFD":
+                    nf = NormalizationForm.FormD;
+                    break;
+                case "NFKC":
+                    nf = NormalizationForm.FormKC;
+                    break;
+                case "NFKD":
+                    nf = NormalizationForm.FormKD;
+                    break;
+                default:
+                    ExceptionHelper.ThrowRangeError(
+                        _engine,
+                        "The normalization form should be one of NFC, NFD, NFKC, NFKD.");
+                    break;
+            }
+
+            return str.Normalize(nf);
+        }
+
+        private JsValue Repeat(JsValue thisObj, JsValue[] arguments)
+        {
+            TypeConverter.CheckObjectCoercible(Engine, thisObj);
+            var str = TypeConverter.ToString(thisObj);
+            var n = (int) TypeConverter.ToInteger(arguments.At(0));
+
+            if (n < 0)
+            {
+                return ExceptionHelper.ThrowRangeError<JsValue>(_engine, "Invalid count value");
+            }
+
+            if (n == 0 || str.Length == 0)
+            {
+                return JsString.Empty;
+            }
+
+            if (str.Length == 1)
+            {
+                return new string(str[0], n);
+            }
+
+            using (var sb = StringBuilderPool.Rent())
+            {
+                sb.Builder.EnsureCapacity(n * str.Length);
+                for (var i = 0; i < n; ++i)
+                {
+                    sb.Builder.Append(str);
+                }
+
+                return sb.ToString();
+            }
         }
     }
 }

@@ -1,5 +1,7 @@
 ﻿using System.Text.RegularExpressions;
+using Jint.Collections;
 using Jint.Native.Array;
+using Jint.Native.Object;
 using Jint.Runtime;
 using Jint.Runtime.Descriptors;
 using Jint.Runtime.Interop;
@@ -8,6 +10,8 @@ namespace Jint.Native.RegExp
 {
     public sealed class RegExpPrototype : RegExpInstance
     {
+        private RegExpConstructor _regExpConstructor;
+
         private RegExpPrototype(Engine engine)
             : base(engine)
         {
@@ -15,36 +19,44 @@ namespace Jint.Native.RegExp
 
         public static RegExpPrototype CreatePrototypeObject(Engine engine, RegExpConstructor regExpConstructor)
         {
-            var obj = new RegExpPrototype(engine);
-            obj.Prototype = engine.Object.PrototypeObject;
-            obj.Extensible = true;
+            var obj = new RegExpPrototype(engine)
+            {
+                Prototype = engine.Object.PrototypeObject,
+                Extensible = true,
+                _regExpConstructor = regExpConstructor
+            };
 
-            obj.FastAddProperty("constructor", regExpConstructor, true, false, true);
             return obj;
         }
 
-        public void Configure()
+        protected override void Initialize()
         {
-            FastAddProperty("toString", new ClrFunctionInstance(Engine, "toString", ToRegExpString), true, false, true);
-            FastAddProperty("exec", new ClrFunctionInstance(Engine, "exec", Exec, 1), true, false, true);
-            FastAddProperty("test", new ClrFunctionInstance(Engine, "test", Test, 1), true, false, true);
-
-            FastAddProperty("global", false, false, false, false);
-            FastAddProperty("ignoreCase", false, false, false, false);
-            FastAddProperty("multiline", false, false, false, false);
-            FastAddProperty("source", "(?:)", false, false, false);
-            FastAddProperty("lastIndex", 0, true, false, false);
+            _properties = new StringDictionarySlim<PropertyDescriptor>(10)
+            {
+                ["constructor"] = new PropertyDescriptor(_regExpConstructor, true, false, true),
+                ["toString"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "toString", ToRegExpString), true, false, true),
+                ["exec"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "exec", Exec, 1), true, false, true),
+                ["test"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "test", Test, 1), true, false, true),
+                ["global"] = new PropertyDescriptor(false, false, false, false),
+                ["ignoreCase"] = new PropertyDescriptor(false, false, false, false),
+                ["multiline"] = new PropertyDescriptor(false, false, false, false),
+                ["source"] = new PropertyDescriptor("(?:)", false, false, false),
+                ["flags"] = new PropertyDescriptor("", false, false, false),
+                ["lastIndex"] = new PropertyDescriptor(0, true, false, false)
+            };
         }
 
         private static JsValue ToRegExpString(JsValue thisObj, JsValue[] arguments)
         {
-            var regExp = thisObj.TryCast<RegExpInstance>();
+            var regexObj = thisObj.TryCast<ObjectInstance>();
+            
+            if (regexObj.TryGetValue("source", out var source) == false)
+                source = Undefined.ToString();
 
-            return "/" + regExp.Source + "/"
-                + (regExp.Flags.Contains("g") ? "g" : "")
-                + (regExp.Flags.Contains("i") ? "i" : "")
-                + (regExp.Flags.Contains("m") ? "m" : "")
-                ;
+            if (regexObj.TryGetValue("flags", out var flags) == false)
+                flags = Undefined.ToString();
+
+            return $"/{source.AsString()}/{flags.AsString()}";
         }
 
         private JsValue Test(JsValue thisObj, JsValue[] arguments)

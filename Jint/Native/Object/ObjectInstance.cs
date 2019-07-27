@@ -15,13 +15,17 @@ using Jint.Runtime;
 using Jint.Runtime.Descriptors;
 using Jint.Runtime.Descriptors.Specialized;
 using Jint.Runtime.Interop;
+using Jint.Runtime.Interpreter.Expressions;
 
 namespace Jint.Native.Object
 {
     public class ObjectInstance : JsValue, IEquatable<ObjectInstance>
     {
+        private static readonly string ToPrimitiveSymbolName = GlobalSymbolRegistry.ToPrimitive._value;
+
         internal StringDictionarySlim<PropertyDescriptor> _properties;
 
+        private bool _initialized;
         private readonly string _class;
         protected readonly Engine _engine;
 
@@ -388,17 +392,34 @@ namespace Jint.Native.Object
         }
 
         /// <summary>
-        /// Hint is a String. Returns a default value for the
-        /// object.
+        /// Hint is a String. Returns a default value for the object.
         /// </summary>
-        /// <param name="hint"></param>
-        /// <returns></returns>
         public JsValue DefaultValue(Types hint)
         {
             EnsureInitialized();
 
             if (hint == Types.String || (hint == Types.None && Class == "Date"))
             {
+                var jsValue = Get(ToPrimitiveSymbolName);
+                if (!jsValue.IsNullOrUndefined())
+                {
+                    if (jsValue is ICallable toPrimitive)
+                    {
+                        var str = toPrimitive.Call(this, Arguments.Empty);
+                        if (str.IsPrimitive())
+                        {
+                            return str;
+                        }
+
+                        if (str.IsObject())
+                        {
+                            return ExceptionHelper.ThrowTypeError<JsValue>(_engine, "Cannot convert object to primitive value");
+                        }
+                    }
+
+                    const string message = "'Value returned for property 'Symbol(Symbol.toPrimitive)' of object is not a function";
+                    return ExceptionHelper.ThrowTypeError<JsValue>(_engine, message);
+                }
                 if (Get("toString") is ICallable toString)
                 {
                     var str = toString.Call(this, Arguments.Empty);
@@ -422,6 +443,27 @@ namespace Jint.Native.Object
 
             if (hint == Types.Number || hint == Types.None)
             {
+                var jsValue = Get(ToPrimitiveSymbolName);
+                if (!jsValue.IsNullOrUndefined())
+                {
+                    if (jsValue is ICallable toPrimitive)
+                    {
+                        var val = toPrimitive.Call(this, Arguments.Empty);
+                        if (val.IsPrimitive())
+                        {
+                            return val;
+                        }
+
+                        if (val.IsObject())
+                        {
+                            return ExceptionHelper.ThrowTypeError<JsValue>(_engine, "Cannot convert object to primitive value");
+                        }
+                    }
+
+                    const string message = "'Value returned for property 'Symbol(Symbol.toPrimitive)' of object is not a function";
+                    return ExceptionHelper.ThrowTypeError<JsValue>(_engine, message);
+                }
+
                 if (Get("valueOf") is ICallable valueOf)
                 {
                     var val = valueOf.Call(this, Arguments.Empty);
@@ -528,9 +570,9 @@ namespace Jint.Native.Object
                 current.Configurable == desc.Configurable && current.ConfigurableSet == desc.ConfigurableSet &&
                 current.Writable == desc.Writable && current.WritableSet == desc.WritableSet &&
                 current.Enumerable == desc.Enumerable && current.EnumerableSet == desc.EnumerableSet &&
-                ((ReferenceEquals(currentGet, null) && ReferenceEquals(descGet, null)) || (!ReferenceEquals(currentGet, null) && !ReferenceEquals(descGet, null) && ExpressionInterpreter.SameValue(currentGet, descGet))) &&
-                ((ReferenceEquals(currentSet, null) && ReferenceEquals(descSet, null)) || (!ReferenceEquals(currentSet, null) && !ReferenceEquals(descSet, null) && ExpressionInterpreter.SameValue(currentSet, descSet))) &&
-                ((ReferenceEquals(currentValue, null) && ReferenceEquals(descValue, null)) || (!ReferenceEquals(currentValue, null) && !ReferenceEquals(descValue, null) && ExpressionInterpreter.StrictlyEqual(currentValue, descValue)))
+                ((ReferenceEquals(currentGet, null) && ReferenceEquals(descGet, null)) || (!ReferenceEquals(currentGet, null) && !ReferenceEquals(descGet, null) && JintExpression.SameValue(currentGet, descGet))) &&
+                ((ReferenceEquals(currentSet, null) && ReferenceEquals(descSet, null)) || (!ReferenceEquals(currentSet, null) && !ReferenceEquals(descSet, null) && JintExpression.SameValue(currentSet, descSet))) &&
+                ((ReferenceEquals(currentValue, null) && ReferenceEquals(descValue, null)) || (!ReferenceEquals(currentValue, null) && !ReferenceEquals(descValue, null) && JintBinaryExpression.StrictlyEqual(currentValue, descValue)))
             )
             {
                 return true;
@@ -607,7 +649,7 @@ namespace Jint.Native.Object
 
                         if (!current.Writable)
                         {
-                            if (!ReferenceEquals(descValue, null) && !ExpressionInterpreter.SameValue(descValue, currentValue))
+                            if (!ReferenceEquals(descValue, null) && !JintExpression.SameValue(descValue, currentValue))
                             {
                                 if (throwOnError)
                                 {
@@ -623,9 +665,9 @@ namespace Jint.Native.Object
                 {
                     if (!current.Configurable)
                     {
-                        if ((!ReferenceEquals(descSet, null) && !ExpressionInterpreter.SameValue(descSet, currentSet ?? Undefined))
+                        if ((!ReferenceEquals(descSet, null) && !JintExpression.SameValue(descSet, currentSet ?? Undefined))
                             ||
-                            (!ReferenceEquals(descGet, null) && !ExpressionInterpreter.SameValue(descGet, currentGet ?? Undefined)))
+                            (!ReferenceEquals(descGet, null) && !JintExpression.SameValue(descGet, currentGet ?? Undefined)))
                         {
                             if (throwOnError)
                             {
@@ -693,6 +735,11 @@ namespace Jint.Native.Object
             SetOwnProperty(name, new PropertyDescriptor(value, writable, enumerable, configurable));
         }
 
+        internal void FastAddProperty(string name, JsValue value, PropertyFlag flags)
+        {
+            SetOwnProperty(name, new PropertyDescriptor(value, flags));
+        }
+
         /// <summary>
         /// Optimized version of [[Put]] when the property is known to be already declared
         /// </summary>
@@ -703,7 +750,17 @@ namespace Jint.Native.Object
             SetOwnProperty(name, value);
         }
 
-        protected virtual void EnsureInitialized()
+        protected void EnsureInitialized()
+        {
+            if (!_initialized)
+            {
+                // we need to set flag eagerly to prevent wrong recursion
+                _initialized = true;
+                Initialize();
+            }
+        }
+
+        protected virtual void Initialize()
         {
         }
 

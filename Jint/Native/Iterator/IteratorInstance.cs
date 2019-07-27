@@ -63,7 +63,9 @@ namespace Jint.Native.Iterator
                     arrayInstance.SetIndexValue(1, value, false);
                     SetOwnProperty("value", new PropertyDescriptor(arrayInstance, PropertyFlag.AllForbidden));
                 }
-                SetOwnProperty("done", new PropertyDescriptor(done, PropertyFlag.AllForbidden));
+                SetOwnProperty(
+                    "done",
+                    done ? PropertyDescriptor.AllForbiddenDescriptor.BooleanTrue : PropertyDescriptor.AllForbiddenDescriptor.BooleanFalse);
             }
         }
 
@@ -291,6 +293,31 @@ namespace Jint.Native.Iterator
                 {
                     ((ICallable) func).Call(_target, Arguments.Empty);
                 }
+            }
+        }
+
+        internal class StringIterator : IteratorInstance
+        {
+            private readonly string _str;
+            private int _position;
+            private bool _closed;
+
+            public StringIterator(Engine engine, string str) : base(engine)
+            {
+                _str = str;
+                _position = 0;
+            }
+
+            public override ObjectInstance Next()
+            {
+                var length = _str.Length;
+                if (!_closed && _position < length)
+                {
+                    return new ValueIteratorPosition(_engine, _str[_position++]);
+                }
+
+                _closed = true;
+                return ValueIteratorPosition.Done;
             }
         }
     }

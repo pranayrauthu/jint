@@ -1,13 +1,15 @@
 using System;
+using System.Runtime.CompilerServices;
 using Esprima.Ast;
 using Jint.Native.Symbol;
 using Jint.Runtime;
+using Jint.Runtime.Interpreter.Expressions;
 
 namespace Jint
 {
-    internal static class EsprimaExtensions
+    public static class EsprimaExtensions
     {
-        public static string GetKey<T>(this T expression) where T : Expression
+        public static string GetKey<T>(this T expression, Engine engine) where T : class, Expression
         {
             if (expression is Literal literal)
             {
@@ -21,16 +23,37 @@ namespace Jint
 
             if (expression is StaticMemberExpression staticMemberExpression)
             {
-                var obj = staticMemberExpression.Object.GetKey();
-                var property = staticMemberExpression.Property.GetKey();
+                var obj = staticMemberExpression.Object.GetKey(engine);
+                var property = staticMemberExpression.Property.GetKey(engine);
 
-                if (obj == "Symbol" && property == "iterator")
+                if (obj == "Symbol")
                 {
-                    return GlobalSymbolRegistry.Iterator._value;
+                    if (property == "iterator")
+                    {
+                        return GlobalSymbolRegistry.Iterator._value;
+                    }
+                    if (property == "toPrimitive")
+                    {
+                        return GlobalSymbolRegistry.ToPrimitive._value;
+                    }
                 }
             }
 
-            return ExceptionHelper.ThrowArgumentException<string>("Unable to extract correct key");
+            if (expression.Type == Nodes.CallExpression
+                || expression.Type == Nodes.BinaryExpression
+                || expression.Type == Nodes.UpdateExpression)
+            {
+                return Convert.ToString(JintExpression.Build(engine, expression).GetValue());
+            }
+
+            return ExceptionHelper.ThrowArgumentException<string>("Unable to extract correct key, node type: " + expression.Type);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static bool IsFunctionWithName<T>(this T node) where T : class, INode
+        {
+            var type = node.Type;
+            return type == Nodes.FunctionExpression || type == Nodes.ArrowFunctionExpression || type == Nodes.ArrowParameterPlaceHolder;
         }
     }
 }

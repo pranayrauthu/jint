@@ -2,18 +2,20 @@
 using Jint.Runtime;
 using Jint.Runtime.Descriptors;
 using Jint.Runtime.Environments;
+using Jint.Runtime.Interpreter.Statements;
 
 namespace Jint.Native.Function
 {
     public sealed class EvalFunctionInstance : FunctionInstance
     {
         private static readonly ParserOptions ParserOptions = new ParserOptions { AdaptRegexp = true, Tolerant = false };
+        private static readonly JsString _functionName = new JsString("eval");
 
         public EvalFunctionInstance(Engine engine, string[] parameters, LexicalEnvironment scope, bool strict) 
-            : base(engine, "eval", parameters, scope, strict)
+            : base(engine, _functionName, parameters, scope, strict)
         {
             Prototype = Engine.Function.PrototypeObject;
-            SetOwnProperty("length", new PropertyDescriptor(1, PropertyFlag.AllForbidden));
+            _length = PropertyDescriptor.AllForbiddenDescriptor.NumberOne;
         }
 
         public override JsValue Call(JsValue thisObject, JsValue[] arguments)
@@ -57,12 +59,12 @@ namespace Jint.Native.Function
 
                             bool argumentInstanceRented = Engine.DeclarationBindingInstantiation(
                                 DeclarationBindingType.EvalCode,
-                                program.HoistingScope.FunctionDeclarations,
-                                program.HoistingScope.VariableDeclarations,
-                                this, 
+                                program.HoistingScope,
+                                functionInstance: this,
                                 arguments);
 
-                            var result = _engine.ExecuteStatement(program);
+                            var statement = JintStatement.Build(_engine, program);
+                            var result = statement.Execute();
                             var value = result.GetValueOrDefault();
 
                             if (argumentInstanceRented)
@@ -100,7 +102,7 @@ namespace Jint.Native.Function
             {
                 if (e.Description == Messages.InvalidLHSInAssignment)
                 {
-                    ExceptionHelper.ThrowReferenceError(_engine);
+                    ExceptionHelper.ThrowReferenceError(_engine, (string) null);
                 }
 
                 ExceptionHelper.ThrowSyntaxError(_engine);

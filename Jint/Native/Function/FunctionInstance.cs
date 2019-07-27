@@ -10,7 +10,7 @@ namespace Jint.Native.Function
     {
         private const string PropertyNamePrototype = "prototype";
         private const int PropertyNamePrototypeLength = 9;
-        protected PropertyDescriptor _prototype;
+        protected internal PropertyDescriptor _prototype;
 
         private const string PropertyNameLength = "length";
         private const int PropertyNameLengthLength = 6;
@@ -18,21 +18,12 @@ namespace Jint.Native.Function
 
         private const string PropertyNameName = "name";
         private const int PropertyNameNameLength = 4;
-        private PropertyDescriptor _name;
+        private JsValue _name;
+        private PropertyDescriptor _nameDescriptor;
 
         protected readonly LexicalEnvironment _scope;
         protected internal readonly string[] _formalParameters;
-        private readonly bool _strict;
-
-        protected FunctionInstance(
-            Engine engine,
-            string name,
-            string[] parameters,
-            LexicalEnvironment scope,
-            bool strict)
-            : this(engine, name, parameters, scope, strict, objectClass: "Function")
-        {
-        }
+        protected readonly bool _strict;
 
         protected FunctionInstance(
             Engine engine,
@@ -40,12 +31,32 @@ namespace Jint.Native.Function
             string[] parameters,
             LexicalEnvironment scope,
             bool strict,
-            in string objectClass)
-            : base(engine, objectClass)
+            string objectClass = "Function")
+            : this(engine, !string.IsNullOrWhiteSpace(name) ? new JsString(name) : null, parameters, scope, strict, objectClass)
         {
-            _name = new PropertyDescriptor(name, PropertyFlag.Configurable);
+        }
+
+        internal FunctionInstance(
+            Engine engine,
+            JsString name,
+            string[] parameters,
+            LexicalEnvironment scope,
+            bool strict,
+            string objectClass = "Function")
+            : this(engine, name, strict, objectClass)
+        {
             _formalParameters = parameters;
             _scope = scope;
+        }
+
+        internal FunctionInstance(
+            Engine engine,
+            JsString name,
+            bool strict,
+            string objectClass = "Function")
+            : base(engine, objectClass)
+        {
+            _name = name;
             _strict = strict;
         }
 
@@ -129,9 +140,9 @@ namespace Jint.Native.Function
             {
                 yield return new KeyValuePair<string, PropertyDescriptor>(PropertyNameLength, _length);
             }
-            if (_name != null)
+            if (!(_name is null))
             {
-                yield return new KeyValuePair<string, PropertyDescriptor>(PropertyNameName, _name);
+                yield return new KeyValuePair<string, PropertyDescriptor>(PropertyNameName, GetOwnProperty(PropertyNameName));
             }
 
             foreach (var entry in base.GetOwnProperties())
@@ -152,7 +163,9 @@ namespace Jint.Native.Function
             }
             if (propertyName.Length == PropertyNameNameLength && propertyName == PropertyNameName)
             {
-                return _name ?? PropertyDescriptor.Undefined;
+                return !(_name is null)
+                    ? _nameDescriptor ?? (_nameDescriptor = new PropertyDescriptor(_name, PropertyFlag.Configurable))
+                    :  PropertyDescriptor.Undefined;
             }
 
             return base.GetOwnProperty(propertyName);
@@ -170,7 +183,8 @@ namespace Jint.Native.Function
             }
             else if (propertyName.Length == PropertyNameNameLength && propertyName == PropertyNameName)
             {
-                _name = desc;
+                _name = desc._value;
+                _nameDescriptor = desc;
             }
             else
             {
@@ -190,7 +204,7 @@ namespace Jint.Native.Function
             }
             if (propertyName.Length == PropertyNameNameLength && propertyName == PropertyNameName)
             {
-                return _name != null;
+                return !(_name is null);
             }
 
             return base.HasOwnProperty(propertyName);
@@ -209,9 +223,22 @@ namespace Jint.Native.Function
             if (propertyName.Length == PropertyNameNameLength && propertyName == PropertyNameName)
             {
                 _name = null;
+                _nameDescriptor = null;
             }
 
             base.RemoveOwnProperty(propertyName);
+        }
+
+        internal void SetFunctionName(string name, bool throwIfExists = false)
+        {
+            if (_name is null)
+            {
+                _name = name;
+            }
+            else if (throwIfExists)
+            {
+                ExceptionHelper.ThrowError(_engine, "cannot set name");
+            }
         }
     }
 }

@@ -1,5 +1,7 @@
 ﻿using System;
+using Jint.Native;
 using Jint.Runtime.CallStack;
+using Jint.Runtime.References;
 
 namespace Jint.Runtime
 {
@@ -32,14 +34,25 @@ namespace Jint.Runtime
             throw new ArgumentException(message, paramName);
         }
 
-        public static void ThrowReferenceError(Engine engine, string message = null)
+        public static void ThrowReferenceError(Engine engine, Reference reference)
         {
+            ThrowReferenceError(engine, reference?.GetReferencedName());
+        }
+
+        public static void ThrowReferenceError(Engine engine, string name)
+        {
+            var message = name != null ? name + " is not defined" : null;
             throw new JavaScriptException(engine.ReferenceError, message);
         }
 
         public static T ThrowTypeErrorNoEngine<T>(string message = null, Exception exception = null)
         {
             throw new TypeErrorException(message);
+        }
+
+        public static T ThrowReferenceError<T>(Engine engine, string message = null)
+        {
+            throw new JavaScriptException(engine.ReferenceError, message);
         }
 
         public static T ThrowTypeError<T>(Engine engine, string message = null, Exception exception = null)
@@ -58,6 +71,11 @@ namespace Jint.Runtime
             throw new JavaScriptException(engine.RangeError, message);
         }
 
+        public static T ThrowRangeErrorNoEngine<T>(string message)
+        {
+            throw new RangeErrorException(message);
+        }
+
         public static void ThrowRangeError(Engine engine, string message = null)
         {
             throw new JavaScriptException(engine.RangeError, message);
@@ -71,6 +89,16 @@ namespace Jint.Runtime
         public static void ThrowNotImplementedException()
         {
             throw new NotImplementedException();
+        }
+
+        public static T ThrowNotImplementedException<T>()
+        {
+            throw new NotImplementedException();
+        }
+
+        public static T ThrowArgumentOutOfRangeException<T>()
+        {
+            throw new ArgumentOutOfRangeException();
         }
 
         public static void ThrowArgumentOutOfRangeException(string paramName, string message)
@@ -108,9 +136,9 @@ namespace Jint.Runtime
             throw new InvalidOperationException(message);
         }
 
-        public static void ThrowJavaScriptException(string message)
+        public static void ThrowJavaScriptException(Engine engine, JsValue value, Completion result)
         {
-            throw new JavaScriptException("TypeError");
+            throw new JavaScriptException(value).SetCallstack(engine, result.Location);
         }
 
         public static void ThrowRecursionDepthOverflowException(JintCallStack currentStack, string currentExpressionReference)

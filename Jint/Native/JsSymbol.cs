@@ -16,6 +16,11 @@ namespace Jint.Native
             _value = value;
         }
 
+        internal JsSymbol(JsValue value) : base(Types.Symbol)
+        {
+            _value = value.IsUndefined() ? "" : value.ToString();
+        }
+
         public override object ToObject()
         {
             return _value;
