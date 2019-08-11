@@ -1,5 +1,6 @@
-﻿using Jint.Runtime;
-using Jint.Runtime.Descriptors.Specialized;
+﻿using Jint.Collections;
+using Jint.Runtime;
+using Jint.Runtime.Descriptors;
 using Jint.Runtime.Interop;
 
 namespace Jint.Native.Boolean
@@ -9,53 +10,54 @@ namespace Jint.Native.Boolean
     /// </summary>
     public sealed class BooleanPrototype : BooleanInstance
     {
+        private BooleanConstructor _booleanConstructor;
+
         private BooleanPrototype(Engine engine) : base(engine)
         {
         }
 
         public static BooleanPrototype CreatePrototypeObject(Engine engine, BooleanConstructor booleanConstructor)
         {
-            var obj = new BooleanPrototype(engine);
-            obj.Prototype = engine.Object.PrototypeObject;
-            obj.PrimitiveValue = false;
-            obj.Extensible = true;
-
-            obj.SetOwnProperty("constructor", new NonEnumerablePropertyDescriptor(booleanConstructor));
+            var obj = new BooleanPrototype(engine)
+            {
+                Prototype = engine.Object.PrototypeObject,
+                PrimitiveValue = false,
+                Extensible = true,
+                _booleanConstructor = booleanConstructor
+            };
 
             return obj;
         }
 
-        public void Configure()
+        protected override void Initialize()
         {
-            FastAddProperty("toString", new ClrFunctionInstance(Engine, ToBooleanString), true, false, true);
-            FastAddProperty("valueOf", new ClrFunctionInstance(Engine, ValueOf), true, false, true);
+            _properties = new StringDictionarySlim<PropertyDescriptor>(3)
+            {
+                ["constructor"] = new PropertyDescriptor(_booleanConstructor, PropertyFlag.NonEnumerable),
+                ["toString"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "toString", ToBooleanString, 0, PropertyFlag.Configurable), true, false, true),
+                ["valueOf"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "valueOf", ValueOf, 0, PropertyFlag.Configurable), true, false, true)
+            };
         }
 
         private JsValue ValueOf(JsValue thisObj, JsValue[] arguments)
         {
-            var B = thisObj;
-            if (B.IsBoolean())
+            if (thisObj._type == Types.Boolean)
             {
-                return B;
+                return thisObj;
             }
-            else
+
+            if (thisObj is BooleanInstance bi)
             {
-                var o = B.TryCast<BooleanInstance>();
-                if (o != null)
-                {
-                    return o.PrimitiveValue;
-                }
-                else
-                {
-                    throw new JavaScriptException(Engine.TypeError);
-                }
+                return bi.PrimitiveValue;
             }
+
+            return ExceptionHelper.ThrowTypeError<JsValue>(Engine);
         }
 
         private JsValue ToBooleanString(JsValue thisObj, JsValue[] arguments)
         {
             var b = ValueOf(thisObj, Arguments.Empty);
-            return b.AsBoolean() ? "true" : "false";
+            return ((JsBoolean) b)._value ? "true" : "false";
         }
     }
 }

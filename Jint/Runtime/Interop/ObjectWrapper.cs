@@ -1,5 +1,6 @@
 using System;
-using System.Linq;
+using System.Collections;
+using System.Collections.Generic;
 using System.Reflection;
 using Jint.Native;
 using Jint.Native.Object;
@@ -13,21 +14,31 @@ namespace Jint.Runtime.Interop
 	/// </summary>
 	public sealed class ObjectWrapper : ObjectInstance, IObjectWrapper
     {
-        public Object Target { get; set; }
-
-        public ObjectWrapper(Engine engine, Object obj)
+        public ObjectWrapper(Engine engine, object obj)
             : base(engine)
         {
             Target = obj;
+            if (obj is ICollection collection)
+            {
+                IsArrayLike = true;
+                // create a forwarder to produce length from Count
+                var functionInstance = new ClrFunctionInstance(engine, "length", (thisObj, arguments) => collection.Count);
+                var descriptor = new GetSetPropertyDescriptor(functionInstance, Undefined, PropertyFlag.AllForbidden);
+                AddProperty("length", descriptor);
+            }
         }
 
-        public override void Put(string propertyName, JsValue value, bool throwOnError)
+        public object Target { get; }
+
+        internal override bool IsArrayLike { get; }
+
+        public override void Put(in Key propertyName, JsValue value, bool throwOnError)
         {
             if (!CanPut(propertyName))
             {
                 if (throwOnError)
                 {
-                    throw new JavaScriptException(Engine.TypeError);
+                    ExceptionHelper.ThrowTypeError(Engine);
                 }
 
                 return;
@@ -39,119 +50,181 @@ namespace Jint.Runtime.Interop
             {
                 if (throwOnError)
                 {
-                    throw new JavaScriptException(Engine.TypeError, "Unknown member: " + propertyName);
-                }
-                else
-                {
-                    return;
+                    ExceptionHelper.ThrowTypeError(_engine, "Unknown member: " + propertyName);
                 }
             }
-
-            ownDesc.Value = value;
+            else
+            {
+                ownDesc.Value = value;
+            }
         }
 
-        public override IPropertyDescriptor GetOwnProperty(string propertyName)
+        public override PropertyDescriptor GetOwnProperty(in Key propertyName)
         {
             if (TryGetProperty(propertyName, out var x))
+            {
                 return x;
+            }
 
             var type = Target.GetType();
+            var key = new Engine.ClrPropertyDescriptorFactoriesKey(type, propertyName);
 
-            // look for a property
-            var property = type.GetProperties(BindingFlags.Static | BindingFlags.Instance | BindingFlags.Public)
-                .Where(p => EqualsIgnoreCasing(p.Name, propertyName))
-                .FirstOrDefault();
-            if (property != null)
+            if (!_engine.ClrPropertyDescriptorFactories.TryGetValue(key, out var factory))
             {
-                var descriptor = new PropertyInfoDescriptor(Engine, property, Target);
-                AddProperty(propertyName, descriptor);
-                return descriptor;
+                factory = ResolveProperty(type, propertyName);
+                _engine.ClrPropertyDescriptorFactories[key] = factory;
             }
 
-            // look for a field
-            var field = type.GetFields(BindingFlags.Static | BindingFlags.Instance | BindingFlags.Public)
-                .Where(f => EqualsIgnoreCasing(f.Name, propertyName))
-                .FirstOrDefault();
-            if (field != null)
-            {
-                var descriptor = new FieldInfoDescriptor(Engine, field, Target);
-                AddProperty(propertyName, descriptor);
-                return descriptor;
-            }
+            var descriptor = factory(_engine, Target);
+            AddProperty(propertyName, descriptor);
+            return descriptor;
+        }
+        
+        private static Func<Engine, object, PropertyDescriptor> ResolveProperty(Type type, string propertyName)
+        {
+            var isNumber = uint.TryParse(propertyName, out _);
 
-            // if no properties were found then look for a method
-            var methods = type.GetMethods(BindingFlags.Static | BindingFlags.Instance | BindingFlags.Public)
-                .Where(m => EqualsIgnoreCasing(m.Name, propertyName))
-                .ToArray();
-
-            if (methods.Any())
+            // properties and fields cannot be numbers
+            if (!isNumber)
             {
-                var descriptor = new EnumerablePropertyDescriptor(new MethodInfoFunctionInstance(Engine, methods));
-                AddProperty(propertyName, descriptor);
-                return descriptor;
+                // look for a property
+                PropertyInfo property = null;
+                foreach (var p in type.GetProperties(BindingFlags.Static | BindingFlags.Instance | BindingFlags.Public))
+                {
+                    if (EqualsIgnoreCasing(p.Name, propertyName))
+                    {
+                        property = p;
+                        break;
+                    }
+                }
+
+                if (property != null)
+                {
+                    return (engine, target) => new PropertyInfoDescriptor(engine, property, target);
+                }
+
+                // look for a field
+                FieldInfo field = null;
+                foreach (var f in type.GetFields(BindingFlags.Static | BindingFlags.Instance | BindingFlags.Public))
+                {
+                    if (EqualsIgnoreCasing(f.Name, propertyName))
+                    {
+                        field = f;
+                        break;
+                    }
+                }
+
+                if (field != null)
+                {
+                    return (engine, target) => new FieldInfoDescriptor(engine, field, target);
+                }
+                
+                // if no properties were found then look for a method
+                List<MethodInfo> methods = null;
+                foreach (var m in type.GetMethods(BindingFlags.Static | BindingFlags.Instance | BindingFlags.Public))
+                {
+                    if (EqualsIgnoreCasing(m.Name, propertyName))
+                    {
+                        methods = methods ?? new List<MethodInfo>();
+                        methods.Add(m);
+                    }
+                }
+
+                if (methods?.Count > 0)
+                {
+                    return (engine, target) => new PropertyDescriptor(new MethodInfoFunctionInstance(engine, methods.ToArray()), PropertyFlag.OnlyEnumerable);
+                }
+
             }
 
             // if no methods are found check if target implemented indexing
-            if (type.GetProperties().Where(p => p.GetIndexParameters().Length != 0).FirstOrDefault() != null)
+            PropertyInfo first = null;
+            foreach (var p in type.GetProperties())
             {
-                return new IndexDescriptor(Engine, propertyName, Target);
+                if (p.GetIndexParameters().Length != 0)
+                {
+                    first = p;
+                    break;
+                }
             }
 
-            var interfaces = type.GetInterfaces();
+            if (first != null)
+            {
+                return (engine, target) => new IndexDescriptor(engine, propertyName, target);
+            }
 
             // try to find a single explicit property implementation
-            var explicitProperties = (from iface in interfaces
-                                      from iprop in iface.GetProperties()
-                                      where EqualsIgnoreCasing(iprop.Name, propertyName)
-                                      select iprop).ToArray();
-
-            if (explicitProperties.Length == 1)
+            List<PropertyInfo> list = null;
+            foreach (Type iface in type.GetInterfaces())
             {
-                var descriptor = new PropertyInfoDescriptor(Engine, explicitProperties[0], Target);
-                AddProperty(propertyName, descriptor);
-                return descriptor;
+                foreach (var iprop in iface.GetProperties())
+                {
+                    if (EqualsIgnoreCasing(iprop.Name, propertyName))
+                    {
+                        list = list ?? new List<PropertyInfo>();
+                        list.Add(iprop);
+                    }
+                }
+            }
+
+            if (list?.Count == 1)
+            {
+                return (engine, target) => new PropertyInfoDescriptor(engine, list[0], target);
             }
 
             // try to find explicit method implementations
-            var explicitMethods = (from iface in interfaces
-                                   from imethod in iface.GetMethods()
-                                   where EqualsIgnoreCasing(imethod.Name, propertyName)
-                                   select imethod).ToArray();
-
-            if (explicitMethods.Length > 0)
+            List<MethodInfo> explicitMethods = null;
+            foreach (Type iface in type.GetInterfaces())
             {
-                var descriptor = new EnumerablePropertyDescriptor(new MethodInfoFunctionInstance(Engine, explicitMethods));
-                AddProperty(propertyName, descriptor);
-                return descriptor;
+                foreach (var imethod in iface.GetMethods())
+                {
+                    if (EqualsIgnoreCasing(imethod.Name, propertyName))
+                    {
+                        explicitMethods = explicitMethods ?? new List<MethodInfo>();
+                        explicitMethods.Add(imethod);
+                    }
+                }
+            }
+
+            if (explicitMethods?.Count > 0)
+            {
+                return (engine, target) => new PropertyDescriptor(new MethodInfoFunctionInstance(engine, explicitMethods.ToArray()), PropertyFlag.OnlyEnumerable);
             }
 
             // try to find explicit indexer implementations
-            var explicitIndexers =
-                (from iface in interfaces
-                 from iprop in iface.GetProperties()
-                 where iprop.GetIndexParameters().Length != 0
-                 select iprop).ToArray();
-
-            if (explicitIndexers.Length == 1)
+            List<PropertyInfo> explicitIndexers = null;
+            foreach (Type iface in type.GetInterfaces())
             {
-                return new IndexDescriptor(Engine, explicitIndexers[0].DeclaringType, propertyName, Target);
+                foreach (var iprop in iface.GetProperties())
+                {
+                    if (iprop.GetIndexParameters().Length != 0)
+                    {
+                        explicitIndexers = explicitIndexers ?? new List<PropertyInfo>();
+                        explicitIndexers.Add(iprop);
+                    }
+                }
             }
 
-            return PropertyDescriptor.Undefined;
+            if (explicitIndexers?.Count == 1)
+            {
+                return (engine, target) => new IndexDescriptor(engine, explicitIndexers[0].DeclaringType, propertyName, target);
+            }
+
+            return (engine, target) => PropertyDescriptor.Undefined;
         }
 
-        private bool EqualsIgnoreCasing(string s1, string s2)
+        private static bool EqualsIgnoreCasing(string s1, string s2)
         {
             bool equals = false;
             if (s1.Length == s2.Length)
             {
-                if (s1.Length > 0 && s2.Length > 0)
+                if (s1.Length > 0)
                 {
-                    equals = (s1.ToLower()[0] == s2.ToLower()[0]);
+                    equals = char.ToLowerInvariant(s1[0]) == char.ToLowerInvariant(s2[0]);
                 }
-                if (s1.Length > 1 && s2.Length > 1)
+                if (equals && s1.Length > 1)
                 {
-                    equals = equals && (s1.Substring(1) == s2.Substring(1));
+                    equals = s1.Substring(1) == s2.Substring(1);
                 }
             }
             return equals;

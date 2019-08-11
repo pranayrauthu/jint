@@ -1,15 +1,19 @@
 ﻿using System;
-using System.Diagnostics.Contracts;
+using System.Globalization;
+using System.Runtime.CompilerServices;
 using Jint.Runtime;
 
 namespace Jint.Native
 {
     public sealed class JsNumber : JsValue, IEquatable<JsNumber>
     {
-        private readonly double _value;
+        // .NET double epsilon and JS epsilon have different values
+        internal const double JavaScriptEpsilon = 2.2204460492503130808472633361816E-16;
+
+        internal readonly double _value;
 
         // how many decimals to check when determining if double is actually an int
-        private const double DoubleIsIntegerTolerance = double.Epsilon * 100;
+        internal const double DoubleIsIntegerTolerance = double.Epsilon * 100;
 
         private static readonly long NegativeZeroBits = BitConverter.DoubleToInt64Bits(-0.0);
 
@@ -19,11 +23,15 @@ namespace Jint.Native
         private static readonly JsNumber[] _doubleToJsValue = new JsNumber[NumbersMax];
         private static readonly JsNumber[] _intToJsValue = new JsNumber[NumbersMax];
 
-        private static readonly JsNumber DoubleNaN = new JsNumber(double.NaN);
-        private static readonly JsNumber DoubleNegativeOne = new JsNumber((double) -1);
-        private static readonly JsNumber DoublePositiveInfinity = new JsNumber(double.PositiveInfinity);
-        private static readonly JsNumber DoubleNegativeInfinity = new JsNumber(double.NegativeInfinity);
+        internal static readonly JsNumber DoubleNaN = new JsNumber(double.NaN);
+        internal static readonly JsNumber DoubleNegativeOne = new JsNumber((double) -1);
+        internal static readonly JsNumber DoublePositiveInfinity = new JsNumber(double.PositiveInfinity);
+        internal static readonly JsNumber DoubleNegativeInfinity = new JsNumber(double.NegativeInfinity);
         private static readonly JsNumber IntegerNegativeOne = new JsNumber(-1);
+        internal static readonly JsNumber NegativeZero = new JsNumber(-0d);
+        internal static readonly JsNumber PositiveZero = new JsNumber(+0);
+
+        internal static readonly JsNumber PI = new JsNumber(System.Math.PI);
 
         static JsNumber()
         {
@@ -34,27 +42,19 @@ namespace Jint.Native
             }
         }
 
-        public JsNumber(double value)
+        public JsNumber(double value) : base(Types.Number)
         {
             _value = value;
         }
 
-        public JsNumber(int value)
+        public JsNumber(int value) : base(Types.Number)
         {
             _value = value;
         }
 
-        public JsNumber(uint value)
+        public JsNumber(uint value) : base(Types.Number)
         {
             _value = value;
-        }
-
-        public override Types Type => Types.Number;
-
-        [Pure]
-        public override double AsNumber()
-        {
-            return _value;
         }
 
         public override object ToObject()
@@ -62,19 +62,32 @@ namespace Jint.Native
             return _value;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static JsNumber Create(double value)
         {
             // we can cache positive double zero, but not negative, -0 == 0 in C# but in JS it's a different story
+            var temp = _doubleToJsValue;
             if ((value == 0 && BitConverter.DoubleToInt64Bits(value) != NegativeZeroBits || value >= 1)
-                && value < _doubleToJsValue.Length
+                && value < temp.Length
                 && System.Math.Abs(value % 1) <= DoubleIsIntegerTolerance)
             {
-                return _doubleToJsValue[(int) value];
+                return temp[(uint) value];
             }
 
             if (value == -1)
             {
                 return DoubleNegativeOne;
+            }
+
+            return CreateNumberUnlikely(value);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static JsNumber CreateNumberUnlikely(double value)
+        {
+            if (value <= double.MaxValue && value >= double.MinValue)
+            {
+                return new JsNumber(value);
             }
 
             if (value == double.NegativeInfinity)
@@ -97,9 +110,10 @@ namespace Jint.Native
 
         internal static JsNumber Create(int value)
         {
-            if (value >= 0 && value < _intToJsValue.Length)
+            var temp = _intToJsValue;
+            if ((uint) value < (uint) temp.Length)
             {
-                return _intToJsValue[value];
+                return temp[value];
             }
 
             if (value == -1)
@@ -112,9 +126,10 @@ namespace Jint.Native
 
         internal static JsNumber Create(uint value)
         {
-            if (value >= 0 && value < _intToJsValue.Length)
+            var temp = _intToJsValue;
+            if (value < (uint) temp.Length)
             {
-                return _intToJsValue[value];
+                return temp[value];
             }
 
             return new JsNumber(value);
@@ -122,7 +137,7 @@ namespace Jint.Native
 
         internal static JsNumber Create(ulong value)
         {
-            if (value >= 0 && value < (ulong) _intToJsValue.Length)
+            if (value < (ulong) _intToJsValue.Length)
             {
                 return _intToJsValue[value];
             }
@@ -132,7 +147,7 @@ namespace Jint.Native
 
         public override string ToString()
         {
-            return _value.ToString();
+            return _value.ToString(CultureInfo.InvariantCulture);
         }
 
         public override bool Equals(JsValue obj)

@@ -1,10 +1,8 @@
-﻿using System;
-using System.Linq;
-using Esprima;
+﻿using Esprima;
 using Esprima.Ast;
 using Jint.Native.Object;
 using Jint.Runtime;
-using Jint.Runtime.Descriptors.Specialized;
+using Jint.Runtime.Descriptors;
 using Jint.Runtime.Environments;
 
 namespace Jint.Native.Function
@@ -12,31 +10,33 @@ namespace Jint.Native.Function
     public sealed class FunctionConstructor : FunctionInstance, IConstructor
     {
         private static readonly ParserOptions ParserOptions = new ParserOptions { AdaptRegexp = true, Tolerant = false };
+        private static readonly JsString _functionName = new JsString("Function");
 
-        private FunctionConstructor(Engine engine):base(engine, null, null, false)
+        private FunctionInstance _throwTypeError;
+        private static readonly char[] ArgumentNameSeparator = new[] { ',' };
+
+        private FunctionConstructor(Engine engine)
+            : base(engine, _functionName, strict: false)
         {
         }
 
         public static FunctionConstructor CreateFunctionConstructor(Engine engine)
         {
-            var obj = new FunctionConstructor(engine);
-            obj.Extensible = true;
+            var obj = new FunctionConstructor(engine)
+            {
+                Extensible = true,
+                PrototypeObject = FunctionPrototype.CreatePrototypeObject(engine)
+            };
 
             // The initial value of Function.prototype is the standard built-in Function prototype object
-            obj.PrototypeObject = FunctionPrototype.CreatePrototypeObject(engine);
 
             // The value of the [[Prototype]] internal property of the Function constructor is the standard built-in Function prototype object
             obj.Prototype = obj.PrototypeObject;
 
-            obj.SetOwnProperty("prototype", new AllForbiddenPropertyDescriptor(obj.PrototypeObject));
-            obj.SetOwnProperty("length", new AllForbiddenPropertyDescriptor(1));
+            obj._prototype = new PropertyDescriptor(obj.PrototypeObject, PropertyFlag.AllForbidden);
+            obj._length =  PropertyDescriptor.AllForbiddenDescriptor.NumberOne;
 
             return obj;
-        }
-
-        public void Configure()
-        {
-
         }
 
         public FunctionPrototype PrototypeObject { get; private set; }
@@ -74,19 +74,22 @@ namespace Jint.Native.Function
             {
                 var functionExpression = "function f(" + p + ") { " + body + "}";
                 var parser = new JavaScriptParser(functionExpression, ParserOptions);
-                function = parser.ParseProgram().Body.First().As<IFunction>();
+                function = (IFunction) parser.ParseProgram().Body[0];
             }
             catch (ParserException)
             {
-                throw new JavaScriptException(Engine.SyntaxError);
+                ExceptionHelper.ThrowSyntaxError(_engine);
+                return null;
             }
 
             var functionObject = new ScriptFunctionInstance(
                 Engine,
                 function,
                 LexicalEnvironment.NewDeclarativeEnvironment(Engine, Engine.ExecutionContext.LexicalEnvironment),
-                function.Strict
-                ) { Extensible = true };
+                function.Strict)
+            {
+                Extensible = true
+            };
 
             return functionObject;
 
@@ -103,20 +106,19 @@ namespace Jint.Native.Function
                 Engine,
                 functionDeclaration,
                 LexicalEnvironment.NewDeclarativeEnvironment(Engine, Engine.ExecutionContext.LexicalEnvironment),
-                functionDeclaration.Strict
-                ) { Extensible = true };
+                functionDeclaration.Strict)
+            {
+                Extensible = true
+            };
 
             return functionObject;
         }
-
-        private FunctionInstance _throwTypeError;
-        private static readonly char[] ArgumentNameSeparator = new[] { ',' };
 
         public FunctionInstance ThrowTypeError
         {
             get
             {
-                if (_throwTypeError != null)
+                if (!ReferenceEquals(_throwTypeError, null))
                 {
                     return _throwTypeError;
                 }
@@ -130,27 +132,27 @@ namespace Jint.Native.Function
         {
             if (arguments.Length != 2)
             {
-                throw new ArgumentException("Apply has to be called with two arguments.");
+                ExceptionHelper.ThrowArgumentException("Apply has to be called with two arguments.");
             }
 
             var func = thisObject.TryCast<ICallable>();
             var thisArg = arguments[0];
             var argArray = arguments[1];
 
-            if (func == null)
+            if (func is null)
             {
-                throw new JavaScriptException(Engine.TypeError);
+                return ExceptionHelper.ThrowTypeError<object>(Engine);
             }
 
-            if (ReferenceEquals(argArray, Undefined) || ReferenceEquals(argArray, Undefined))
+            if (argArray.IsNullOrUndefined())
             {
                 return func.Call(thisArg, Arguments.Empty);
             }
 
             var argArrayObj = argArray.TryCast<ObjectInstance>();
-            if (argArrayObj == null)
+            if (ReferenceEquals(argArrayObj, null))
             {
-                throw new JavaScriptException(Engine.TypeError);
+                ExceptionHelper.ThrowTypeError(Engine);
             }
 
             var len = argArrayObj.Get("length");

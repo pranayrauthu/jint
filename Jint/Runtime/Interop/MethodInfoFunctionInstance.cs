@@ -1,5 +1,4 @@
-﻿using System;
-using System.Globalization;
+﻿using System.Globalization;
 using System.Linq.Expressions;
 using System.Reflection;
 using Jint.Native;
@@ -12,7 +11,7 @@ namespace Jint.Runtime.Interop
         private readonly MethodInfo[] _methods;
 
         public MethodInfoFunctionInstance(Engine engine, MethodInfo[] methods)
-            : base(engine, null, null, false)
+            : base(engine, "Function", null, null, false)
         {
             _methods = methods;
             Prototype = engine.Function.PrototypeObject;
@@ -25,17 +24,25 @@ namespace Jint.Runtime.Interop
 
         public JsValue Invoke(MethodInfo[] methodInfos, JsValue thisObject, JsValue[] jsArguments)
         {
-            var arguments = ProcessParamsArrays(jsArguments, methodInfos);
+            JsValue[] ArgumentProvider(MethodInfo method, bool hasParams) =>
+                hasParams
+                    ? ProcessParamsArrays(jsArguments, method)
+                    : jsArguments;
+
             var converter = Engine.ClrTypeConverter;
 
-            foreach (var method in TypeConverter.FindBestMatch(Engine, methodInfos, arguments))
+            foreach (var tuple in TypeConverter.FindBestMatch(_engine, methodInfos, ArgumentProvider))
             {
+                var method = tuple.Item1;
+                var arguments = tuple.Item2;
+
                 var parameters = new object[arguments.Length];
+                var methodParameters = method.GetParameters();
                 var argumentsMatch = true;
 
                 for (var i = 0; i < arguments.Length; i++)
                 {
-                    var parameterType = method.GetParameters()[i].ParameterType;
+                    var parameterType = methodParameters[i].ParameterType;
 
                     if (typeof(JsValue).IsAssignableFrom(parameterType))
                     {
@@ -62,8 +69,7 @@ namespace Jint.Runtime.Interop
                             break;
                         }
 
-                        var lambdaExpression = parameters[i] as LambdaExpression;
-                        if (lambdaExpression != null)
+                        if (parameters[i] is LambdaExpression lambdaExpression)
                         {
                             parameters[i] = lambdaExpression.Compile();
                         }
@@ -78,71 +84,45 @@ namespace Jint.Runtime.Interop
                 // todo: cache method info
                 try
                 {
-                    return JsValue.FromObject(Engine, method.Invoke(thisObject.ToObject(), parameters));
+                    return FromObject(Engine, method.Invoke(thisObject.ToObject(), parameters));
                 }
                 catch (TargetInvocationException exception)
                 {
-                    var meaningfulException = exception.InnerException ?? exception;
-                    var handler = Engine.Options._ClrExceptionsHandler;
-
-                    if (handler != null && handler(meaningfulException))
-                    {
-                        throw new JavaScriptException(Engine.Error, meaningfulException.Message);
-                    }
-
-                    throw meaningfulException;
+                    ExceptionHelper.ThrowMeaningfulException(_engine, exception);
                 }
             }
 
-            throw new JavaScriptException(Engine.TypeError, "No public methods with the specified arguments were found.");
+            ExceptionHelper.ThrowTypeError(_engine, "No public methods with the specified arguments were found.");
+            return null;
         }
 
         /// <summary>
-        /// Reduces a flat list of parameters to a params array
+        /// Reduces a flat list of parameters to a params array, if needed
         /// </summary>
-        private JsValue[] ProcessParamsArrays(JsValue[] jsArguments, MethodInfo[] methodInfos)
+        private JsValue[] ProcessParamsArrays(JsValue[] jsArguments, MethodInfo methodInfo)
         {
-            for (var i = 0; i < methodInfos.Length; i++)
+            var parameters = methodInfo.GetParameters();
+
+            var nonParamsArgumentsCount = parameters.Length - 1;
+            if (jsArguments.Length < nonParamsArgumentsCount)
+                return jsArguments;
+
+            var argsToTransform = jsArguments.Skip(nonParamsArgumentsCount);
+
+            if (argsToTransform.Length == 1 && argsToTransform[0].IsArray())
+                return jsArguments;
+
+            var jsArray = Engine.Array.Construct(Arguments.Empty);
+            Engine.Array.PrototypeObject.Push(jsArray, argsToTransform);
+
+            var newArgumentsCollection = new JsValue[nonParamsArgumentsCount + 1];
+            for (var j = 0; j < nonParamsArgumentsCount; ++j)
             {
-                var methodInfo = methodInfos[i];
-                var parameters = methodInfo.GetParameters();
-
-                bool hasParamArrayAttribute = false;
-                for (int j = 0; j < parameters.Length; ++j)
-                {
-                    if (parameters[j].HasAttribute<ParamArrayAttribute>())
-                    {
-                        hasParamArrayAttribute = true;
-                        break;
-                    }
-                }
-                if (!hasParamArrayAttribute)
-                    continue;
-
-                var nonParamsArgumentsCount = parameters.Length - 1;
-                if (jsArguments.Length < nonParamsArgumentsCount)
-                    continue;
-
-                var argsToTransform = jsArguments.Skip(nonParamsArgumentsCount);
-
-                if (argsToTransform.Length == 1 && argsToTransform[0].IsArray())
-                    continue;
-
-                var jsArray = Engine.Array.Construct(Arguments.Empty);
-                Engine.Array.PrototypeObject.Push(jsArray, argsToTransform);
-
-                var newArgumentsCollection = new JsValue[nonParamsArgumentsCount + 1];
-                for (var j = 0; j < nonParamsArgumentsCount; ++j)
-                {
-                    newArgumentsCollection[j] = jsArguments[j];
-                }
-
-                newArgumentsCollection[nonParamsArgumentsCount] = jsArray;
-                return newArgumentsCollection;
+                newArgumentsCollection[j] = jsArguments[j];
             }
 
-            return jsArguments;
+            newArgumentsCollection[nonParamsArgumentsCount] = jsArray;
+            return newArgumentsCollection;
         }
-
     }
 }

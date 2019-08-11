@@ -1,9 +1,10 @@
 ﻿using System;
 using System.Globalization;
+using Jint.Collections;
 using Jint.Native.Function;
 using Jint.Native.Object;
 using Jint.Runtime;
-using Jint.Runtime.Descriptors.Specialized;
+using Jint.Runtime.Descriptors;
 using Jint.Runtime.Interop;
 
 namespace Jint.Native.Date
@@ -12,86 +13,94 @@ namespace Jint.Native.Date
     {
         internal static readonly DateTime Epoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-        public DateConstructor(Engine engine) : base(engine, null, null, false)
+        private static readonly string[] DefaultFormats = {
+            "yyyy-MM-ddTHH:mm:ss.FFF",
+            "yyyy-MM-ddTHH:mm:ss",
+            "yyyy-MM-ddTHH:mm",
+            "yyyy-MM-dd",
+            "yyyy-MM",
+            "yyyy"
+        };
+
+        private static readonly string[] SecondaryFormats = {
+            // Formats used in DatePrototype toString methods
+            "ddd MMM dd yyyy HH:mm:ss 'GMT'K",
+            "ddd MMM dd yyyy",
+            "HH:mm:ss 'GMT'K",
+
+            // standard formats
+            "yyyy-M-dTH:m:s.FFFK",
+            "yyyy/M/dTH:m:s.FFFK",
+            "yyyy-M-dTH:m:sK",
+            "yyyy/M/dTH:m:sK",
+            "yyyy-M-dTH:mK",
+            "yyyy/M/dTH:mK",
+            "yyyy-M-d H:m:s.FFFK",
+            "yyyy/M/d H:m:s.FFFK",
+            "yyyy-M-d H:m:sK",
+            "yyyy/M/d H:m:sK",
+            "yyyy-M-d H:mK",
+            "yyyy/M/d H:mK",
+            "yyyy-M-dK",
+            "yyyy/M/dK",
+            "yyyy-MK",
+            "yyyy/MK",
+            "yyyyK",
+            "THH:mm:ss.FFFK",
+            "THH:mm:ssK",
+            "THH:mmK",
+            "THHK"
+        };
+
+        private static readonly JsString _functionName = new JsString("Date");
+
+        public DateConstructor(Engine engine) : base(engine, _functionName, strict: false)
         {
         }
 
         public static DateConstructor CreateDateConstructor(Engine engine)
         {
-            var obj = new DateConstructor(engine);
-            obj.Extensible = true;
+            var obj = new DateConstructor(engine)
+            {
+                Extensible = true,
+                Prototype = engine.Function.PrototypeObject
+            };
 
             // The value of the [[Prototype]] internal property of the Date constructor is the Function prototype object
-            obj.Prototype = engine.Function.PrototypeObject;
             obj.PrototypeObject = DatePrototype.CreatePrototypeObject(engine, obj);
 
-            obj.SetOwnProperty("length", new AllForbiddenPropertyDescriptor(7));
+            obj._length = new PropertyDescriptor(7, PropertyFlag.AllForbidden);
 
             // The initial value of Date.prototype is the Date prototype object
-            obj.SetOwnProperty("prototype", new AllForbiddenPropertyDescriptor(obj.PrototypeObject));
+            obj._prototype = new PropertyDescriptor(obj.PrototypeObject, PropertyFlag.AllForbidden);
 
             return obj;
         }
 
-        public void Configure()
+        protected override void Initialize()
         {
-            FastAddProperty("parse", new ClrFunctionInstance(Engine, Parse, 1), true, false, true);
-            FastAddProperty("UTC", new ClrFunctionInstance(Engine, Utc, 7), true, false, true);
-            FastAddProperty("now", new ClrFunctionInstance(Engine, Now, 0), true, false, true);
+            _properties = new StringDictionarySlim<PropertyDescriptor>(3)
+            {
+                ["parse"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "parse", Parse, 1), true, false, true),
+                ["UTC"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "utc", Utc, 7), true, false, true),
+                ["now"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "now", Now, 0), true, false, true)
+            };
         }
 
         private JsValue Parse(JsValue thisObj, JsValue[] arguments)
         {
-            DateTime result;
             var date = TypeConverter.ToString(arguments.At(0));
 
-            if (!DateTime.TryParseExact(date, new[]
+            if (!DateTime.TryParseExact(date, DefaultFormats, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var result))
             {
-                "yyyy-MM-ddTHH:mm:ss.FFF",
-                "yyyy-MM-ddTHH:mm:ss",
-                "yyyy-MM-ddTHH:mm",
-                "yyyy-MM-dd",
-                "yyyy-MM",
-                "yyyy"
-            }, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out result))
+                if (!DateTime.TryParseExact(date, SecondaryFormats, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal, out result))
             {
-                if (!DateTime.TryParseExact(date, new[]
-                {
-                    // Formats used in DatePrototype toString methods
-                    "ddd MMM dd yyyy HH:mm:ss 'GMT'K",
-                    "ddd MMM dd yyyy",
-                    "HH:mm:ss 'GMT'K",
-
-                    // standard formats
-                    "yyyy-M-dTH:m:s.FFFK",
-                    "yyyy/M/dTH:m:s.FFFK",
-                    "yyyy-M-dTH:m:sK",
-                    "yyyy/M/dTH:m:sK",
-                    "yyyy-M-dTH:mK",
-                    "yyyy/M/dTH:mK",
-                    "yyyy-M-d H:m:s.FFFK",
-                    "yyyy/M/d H:m:s.FFFK",
-                    "yyyy-M-d H:m:sK",
-                    "yyyy/M/d H:m:sK",
-                    "yyyy-M-d H:mK",
-                    "yyyy/M/d H:mK",
-                    "yyyy-M-dK",
-                    "yyyy/M/dK",
-                    "yyyy-MK",
-                    "yyyy/MK",
-                    "yyyyK",
-                    "THH:mm:ss.FFFK",
-                    "THH:mm:ssK",
-                    "THH:mmK",
-                    "THHK"
-                }, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal, out result))
-                {
                     if (!DateTime.TryParse(date, Engine.Options._Culture, DateTimeStyles.AdjustToUniversal, out result))
                     {
                         if (!DateTime.TryParse(date, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal, out result))
                         {
                             // unrecognized dates should return NaN (15.9.4.2)
-                            return double.NaN;
+                            return JsNumber.DoubleNaN;
                         }
                     }
                 }
@@ -105,7 +114,7 @@ namespace Jint.Native.Date
             return TimeClip(ConstructTimeValue(arguments, useUtc: true));
         }
 
-        private JsValue Now(JsValue thisObj, JsValue[] arguments)
+        private static JsValue Now(JsValue thisObj, JsValue[] arguments)
         {
             return System.Math.Floor((DateTime.UtcNow - Epoch).TotalMilliseconds);
         }
@@ -131,7 +140,7 @@ namespace Jint.Native.Date
                 var v = TypeConverter.ToPrimitive(arguments[0]);
                 if (v.IsString())
                 {
-                    return Construct(Parse(Undefined, Arguments.From(v)).AsNumber());
+                    return Construct(((JsNumber) Parse(Undefined, Arguments.From(v)))._value);
                 }
 
                 return Construct(TypeConverter.ToNumber(v));
@@ -146,16 +155,27 @@ namespace Jint.Native.Date
         {
             if (arguments.Length < 2)
             {
-                throw new ArgumentOutOfRangeException("arguments", "There must be at least two arguments.");
+                ExceptionHelper.ThrowArgumentOutOfRangeException(nameof(arguments), "There must be at least two arguments.");
+            }
+
+            int SafeInteger(JsValue value)
+            {
+                var integer = TypeConverter.ToInteger(value);
+                if (integer > int.MaxValue || integer < int.MinValue)
+                {
+                    ExceptionHelper.ThrowTypeError(_engine, "Invalid Date.");
+                }
+
+                return (int) integer;
             }
 
             var y = TypeConverter.ToNumber(arguments[0]);
-            var m = (int)TypeConverter.ToInteger(arguments[1]);
-            var dt = arguments.Length > 2 ? (int)TypeConverter.ToInteger(arguments[2]) : 1;
-            var h = arguments.Length > 3 ? (int)TypeConverter.ToInteger(arguments[3]) : 0;
-            var min = arguments.Length > 4 ? (int)TypeConverter.ToInteger(arguments[4]) : 0;
-            var s = arguments.Length > 5 ? (int)TypeConverter.ToInteger(arguments[5]) : 0;
-            var milli = arguments.Length > 6 ? (int)TypeConverter.ToInteger(arguments[6]) : 0;
+            var m = SafeInteger(arguments[1]);
+            var dt = arguments.Length > 2 ? SafeInteger(arguments[2]) : 1;
+            var h = arguments.Length > 3 ? SafeInteger(arguments[3]) : 0;
+            var min = arguments.Length > 4 ? SafeInteger(arguments[4]) : 0;
+            var s = arguments.Length > 5 ? SafeInteger(arguments[5]) : 0;
+            var milli = arguments.Length > 6 ? SafeInteger(arguments[6]) : 0;
 
             for (int i = 2; i < arguments.Length; i++)
             {
@@ -165,7 +185,7 @@ namespace Jint.Native.Date
                 }
             }
 
-            if ((!double.IsNaN(y)) && (0 <= TypeConverter.ToInteger(y)) && (TypeConverter.ToInteger(y) <= 99))
+            if (!double.IsNaN(y) && 0 <= TypeConverter.ToInteger(y) && TypeConverter.ToInteger(y) <= 99)
             {
                 y += 1900;
             }

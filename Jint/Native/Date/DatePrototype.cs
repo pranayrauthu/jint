@@ -1,7 +1,8 @@
 ﻿using System;
 using System.Globalization;
+using Jint.Collections;
 using Jint.Runtime;
-using Jint.Runtime.Descriptors.Specialized;
+using Jint.Runtime.Descriptors;
 using Jint.Runtime.Interop;
 
 namespace Jint.Native.Date
@@ -11,6 +12,8 @@ namespace Jint.Native.Date
     /// </summary>
     public sealed class DatePrototype : DateInstance
     {
+        private DateConstructor _dateConstructor;
+
         private DatePrototype(Engine engine)
             : base(engine)
         {
@@ -22,61 +25,64 @@ namespace Jint.Native.Date
             {
                 Prototype = engine.Object.PrototypeObject,
                 Extensible = true,
-                PrimitiveValue = double.NaN
+                PrimitiveValue = double.NaN,
+                _dateConstructor = dateConstructor
             };
-
-            obj.SetOwnProperty("constructor", new NonEnumerablePropertyDescriptor(dateConstructor));
 
             return obj;
         }
 
-        public void Configure()
+        protected override  void Initialize()
         {
-            FastAddProperty("toString", new ClrFunctionInstance(Engine, ToString, 0), true, false, true);
-            FastAddProperty("toDateString", new ClrFunctionInstance(Engine, ToDateString, 0), true, false, true);
-            FastAddProperty("toTimeString", new ClrFunctionInstance(Engine, ToTimeString, 0), true, false, true);
-            FastAddProperty("toLocaleString", new ClrFunctionInstance(Engine, ToLocaleString, 0), true, false, true);
-            FastAddProperty("toLocaleDateString", new ClrFunctionInstance(Engine, ToLocaleDateString, 0), true, false, true);
-            FastAddProperty("toLocaleTimeString", new ClrFunctionInstance(Engine, ToLocaleTimeString, 0), true, false, true);
-            FastAddProperty("valueOf", new ClrFunctionInstance(Engine, ValueOf, 0), true, false, true);
-            FastAddProperty("getTime", new ClrFunctionInstance(Engine, GetTime, 0), true, false, true);
-            FastAddProperty("getFullYear", new ClrFunctionInstance(Engine, GetFullYear, 0), true, false, true);
-            FastAddProperty("getYear", new ClrFunctionInstance(Engine, GetYear, 0), true, false, true);
-            FastAddProperty("getUTCFullYear", new ClrFunctionInstance(Engine, GetUTCFullYear, 0), true, false, true);
-            FastAddProperty("getMonth", new ClrFunctionInstance(Engine, GetMonth, 0), true, false, true);
-            FastAddProperty("getUTCMonth", new ClrFunctionInstance(Engine, GetUTCMonth, 0), true, false, true);
-            FastAddProperty("getDate", new ClrFunctionInstance(Engine, GetDate, 0), true, false, true);
-            FastAddProperty("getUTCDate", new ClrFunctionInstance(Engine, GetUTCDate, 0), true, false, true);
-            FastAddProperty("getDay", new ClrFunctionInstance(Engine, GetDay, 0), true, false, true);
-            FastAddProperty("getUTCDay", new ClrFunctionInstance(Engine, GetUTCDay, 0), true, false, true);
-            FastAddProperty("getHours", new ClrFunctionInstance(Engine, GetHours, 0), true, false, true);
-            FastAddProperty("getUTCHours", new ClrFunctionInstance(Engine, GetUTCHours, 0), true, false, true);
-            FastAddProperty("getMinutes", new ClrFunctionInstance(Engine, GetMinutes, 0), true, false, true);
-            FastAddProperty("getUTCMinutes", new ClrFunctionInstance(Engine, GetUTCMinutes, 0), true, false, true);
-            FastAddProperty("getSeconds", new ClrFunctionInstance(Engine, GetSeconds, 0), true, false, true);
-            FastAddProperty("getUTCSeconds", new ClrFunctionInstance(Engine, GetUTCSeconds, 0), true, false, true);
-            FastAddProperty("getMilliseconds", new ClrFunctionInstance(Engine, GetMilliseconds, 0), true, false, true);
-            FastAddProperty("getUTCMilliseconds", new ClrFunctionInstance(Engine, GetUTCMilliseconds, 0), true, false, true);
-            FastAddProperty("getTimezoneOffset", new ClrFunctionInstance(Engine, GetTimezoneOffset, 0), true, false, true);
-            FastAddProperty("setTime", new ClrFunctionInstance(Engine, SetTime, 1), true, false, true);
-            FastAddProperty("setMilliseconds", new ClrFunctionInstance(Engine, SetMilliseconds, 1), true, false, true);
-            FastAddProperty("setUTCMilliseconds", new ClrFunctionInstance(Engine, SetUTCMilliseconds, 1), true, false, true);
-            FastAddProperty("setSeconds", new ClrFunctionInstance(Engine, SetSeconds, 2), true, false, true);
-            FastAddProperty("setUTCSeconds", new ClrFunctionInstance(Engine, SetUTCSeconds, 2), true, false, true);
-            FastAddProperty("setMinutes", new ClrFunctionInstance(Engine, SetMinutes, 3), true, false, true);
-            FastAddProperty("setUTCMinutes", new ClrFunctionInstance(Engine, SetUTCMinutes, 3), true, false, true);
-            FastAddProperty("setHours", new ClrFunctionInstance(Engine, SetHours, 4), true, false, true);
-            FastAddProperty("setUTCHours", new ClrFunctionInstance(Engine, SetUTCHours, 4), true, false, true);
-            FastAddProperty("setDate", new ClrFunctionInstance(Engine, SetDate, 1), true, false, true);
-            FastAddProperty("setUTCDate", new ClrFunctionInstance(Engine, SetUTCDate, 1), true, false, true);
-            FastAddProperty("setMonth", new ClrFunctionInstance(Engine, SetMonth, 2), true, false, true);
-            FastAddProperty("setUTCMonth", new ClrFunctionInstance(Engine, SetUTCMonth, 2), true, false, true);
-            FastAddProperty("setFullYear", new ClrFunctionInstance(Engine, SetFullYear, 3), true, false, true);
-            FastAddProperty("setYear", new ClrFunctionInstance(Engine, SetYear, 1), true, false, true);
-            FastAddProperty("setUTCFullYear", new ClrFunctionInstance(Engine, SetUTCFullYear, 3), true, false, true);
-            FastAddProperty("toUTCString", new ClrFunctionInstance(Engine, ToUtcString, 0), true, false, true);
-            FastAddProperty("toISOString", new ClrFunctionInstance(Engine, ToISOString, 0), true, false, true);
-            FastAddProperty("toJSON", new ClrFunctionInstance(Engine, ToJSON, 1), true, false, true);
+            _properties = new StringDictionarySlim<PropertyDescriptor>(50)
+            {
+                ["constructor"] = new PropertyDescriptor(_dateConstructor, PropertyFlag.NonEnumerable),
+                ["toString"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "toString", ToString, 0), true, false, true),
+                ["toDateString"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "toDateString", ToDateString, 0), true, false, true),
+                ["toTimeString"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "toTimeString", ToTimeString, 0), true, false, true),
+                ["toLocaleString"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "toLocaleString", ToLocaleString, 0), true, false, true),
+                ["toLocaleDateString"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "toLocaleDateString", ToLocaleDateString, 0), true, false, true),
+                ["toLocaleTimeString"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "toLocaleTimeString", ToLocaleTimeString, 0), true, false, true),
+                ["valueOf"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "valueOf", ValueOf, 0), true, false, true),
+                ["getTime"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "getTime", GetTime, 0), true, false, true),
+                ["getFullYear"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "getFullYear", GetFullYear, 0), true, false, true),
+                ["getYear"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "getYear", GetYear, 0), true, false, true),
+                ["getUTCFullYear"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "getUTCFullYear", GetUTCFullYear, 0), true, false, true),
+                ["getMonth"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "getMonth", GetMonth, 0), true, false, true),
+                ["getUTCMonth"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "getUTCMonth", GetUTCMonth, 0), true, false, true),
+                ["getDate"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "getDate", GetDate, 0), true, false, true),
+                ["getUTCDate"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "getUTCDate", GetUTCDate, 0), true, false, true),
+                ["getDay"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "getDay", GetDay, 0), true, false, true),
+                ["getUTCDay"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "getUTCDay", GetUTCDay, 0), true, false, true),
+                ["getHours"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "getHours", GetHours, 0), true, false, true),
+                ["getUTCHours"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "getUTCHours", GetUTCHours, 0), true, false, true),
+                ["getMinutes"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "getMinutes", GetMinutes, 0), true, false, true),
+                ["getUTCMinutes"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "getUTCMInutes", GetUTCMinutes, 0), true, false, true),
+                ["getSeconds"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "getSeconds", GetSeconds, 0), true, false, true),
+                ["getUTCSeconds"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "getUTCSeconds", GetUTCSeconds, 0), true, false, true),
+                ["getMilliseconds"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "getMilliseconds", GetMilliseconds, 0), true, false, true),
+                ["getUTCMilliseconds"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "getUTCMilliseconds", GetUTCMilliseconds, 0), true, false, true),
+                ["getTimezoneOffset"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "getTimezoneOffset", GetTimezoneOffset, 0), true, false, true),
+                ["setTime"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "setTime", SetTime, 1), true, false, true),
+                ["setMilliseconds"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "setMilliseconds", SetMilliseconds, 1), true, false, true),
+                ["setUTCMilliseconds"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "setUTCMilliseconds", SetUTCMilliseconds, 1), true, false, true),
+                ["setSeconds"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "setSeconds", SetSeconds, 2), true, false, true),
+                ["setUTCSeconds"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "setUTCSeconds", SetUTCSeconds, 2), true, false, true),
+                ["setMinutes"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "setMinutes", SetMinutes, 3), true, false, true),
+                ["setUTCMinutes"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "setUTCMinutes", SetUTCMinutes, 3), true, false, true),
+                ["setHours"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "setHours", SetHours, 4), true, false, true),
+                ["setUTCHours"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "setUTCHours", SetUTCHours, 4), true, false, true),
+                ["setDate"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "setDate", SetDate, 1), true, false, true),
+                ["setUTCDate"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "setUTCDate", SetUTCDate, 1), true, false, true),
+                ["setMonth"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "setMonth", SetMonth, 2), true, false, true),
+                ["setUTCMonth"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "setUTCMonth", SetUTCMonth, 2), true, false, true),
+                ["setFullYear"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "setFullYear", SetFullYear, 3), true, false, true),
+                ["setYear"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "setYear", SetYear, 1), true, false, true),
+                ["setUTCFullYear"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "setUTCFullYear     ", SetUTCFullYear, 3), true, false, true),
+                ["toUTCString"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "toUTCString", ToUtcString, 0), true, false, true),
+                ["toISOString"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "toISOString", ToISOString, 0), true, false, true),
+                ["toJSON"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "toJSON", ToJSON, 1), true, false, true)
+            };
         }
 
         private JsValue ValueOf(JsValue thisObj, JsValue[] arguments)
@@ -92,45 +98,75 @@ namespace Jint.Native.Date
         {
             return thisObj.TryCast<DateInstance>(value =>
                {
-                   throw new JavaScriptException(Engine.TypeError, "Invalid Date");
+                   ExceptionHelper.ThrowTypeError(_engine, "Invalid Date");
                });
         }
 
         public JsValue ToString(JsValue thisObj, JsValue[] arg2)
         {
-            return ToLocalTime(EnsureDateInstance(thisObj).ToDateTime()).ToString("ddd MMM dd yyyy HH:mm:ss 'GMT'K", CultureInfo.InvariantCulture);
+            var dateInstance = EnsureDateInstance(thisObj);
+
+            if (double.IsNaN(dateInstance.PrimitiveValue))
+                return "Invalid Date";
+
+            return ToLocalTime(dateInstance.ToDateTime()).ToString("ddd MMM dd yyyy HH:mm:ss 'GMT'K", CultureInfo.InvariantCulture);
         }
 
         private JsValue ToDateString(JsValue thisObj, JsValue[] arguments)
         {
-            return ToLocalTime(EnsureDateInstance(thisObj).ToDateTime()).ToString("ddd MMM dd yyyy", CultureInfo.InvariantCulture);
+            var dateInstance = EnsureDateInstance(thisObj);
+
+            if (double.IsNaN(dateInstance.PrimitiveValue))
+                return "Invalid Date";
+
+            return ToLocalTime(dateInstance.ToDateTime()).ToString("ddd MMM dd yyyy", CultureInfo.InvariantCulture);
         }
 
         private JsValue ToTimeString(JsValue thisObj, JsValue[] arguments)
         {
-            return ToLocalTime(EnsureDateInstance(thisObj).ToDateTime()).ToString("HH:mm:ss 'GMT'K", CultureInfo.InvariantCulture);
+            var dateInstance = EnsureDateInstance(thisObj);
+
+            if (double.IsNaN(dateInstance.PrimitiveValue))
+                return "Invalid Date";
+
+            return ToLocalTime(dateInstance.ToDateTime()).ToString("HH:mm:ss 'GMT'K", CultureInfo.InvariantCulture);
         }
 
         private JsValue ToLocaleString(JsValue thisObj, JsValue[] arguments)
         {
-            return ToLocalTime(EnsureDateInstance(thisObj).ToDateTime()).ToString("F", Engine.Options._Culture);
+            var dateInstance = EnsureDateInstance(thisObj);
+
+            if (double.IsNaN(dateInstance.PrimitiveValue))
+                return "Invalid Date";
+
+            return ToLocalTime(dateInstance.ToDateTime()).ToString("F", Engine.Options._Culture);
         }
 
         private JsValue ToLocaleDateString(JsValue thisObj, JsValue[] arguments)
         {
-            return ToLocalTime(EnsureDateInstance(thisObj).ToDateTime()).ToString("D", Engine.Options._Culture);
+            var dateInstance = EnsureDateInstance(thisObj);
+
+            if (double.IsNaN(dateInstance.PrimitiveValue))
+                return "Invalid Date";
+
+            return ToLocalTime(dateInstance.ToDateTime()).ToString("D", Engine.Options._Culture);
         }
 
         private JsValue ToLocaleTimeString(JsValue thisObj, JsValue[] arguments)
         {
-            return ToLocalTime(EnsureDateInstance(thisObj).ToDateTime()).ToString("T", Engine.Options._Culture);
+            var dateInstance = EnsureDateInstance(thisObj);
+
+            if (double.IsNaN(dateInstance.PrimitiveValue))
+                return "Invalid Date";
+
+            return ToLocalTime(dateInstance.ToDateTime()).ToString("T", Engine.Options._Culture);
         }
 
         private JsValue GetTime(JsValue thisObj, JsValue[] arguments)
         {
             if (double.IsNaN(EnsureDateInstance(thisObj).PrimitiveValue))
             {
-                return double.NaN;
+                return JsNumber.DoubleNaN;
             }
 
             return EnsureDateInstance(thisObj).PrimitiveValue;
@@ -141,7 +177,7 @@ namespace Jint.Native.Date
             var t = EnsureDateInstance(thisObj).PrimitiveValue;
             if (double.IsNaN(t))
             {
-                return double.NaN;
+                return JsNumber.DoubleNaN;
             }
 
             return YearFromTime(LocalTime(t));
@@ -152,7 +188,7 @@ namespace Jint.Native.Date
             var t = EnsureDateInstance(thisObj).PrimitiveValue;
             if (double.IsNaN(t))
             {
-                return double.NaN;
+                return JsNumber.DoubleNaN;
             }
 
             return YearFromTime(LocalTime(t)) - 1900;
@@ -163,7 +199,7 @@ namespace Jint.Native.Date
             var t = EnsureDateInstance(thisObj).PrimitiveValue;
             if (double.IsNaN(t))
             {
-                return double.NaN;
+                return JsNumber.DoubleNaN;
             }
 
             return YearFromTime(t);
@@ -174,7 +210,7 @@ namespace Jint.Native.Date
             var t = EnsureDateInstance(thisObj).PrimitiveValue;
             if (double.IsNaN(t))
             {
-                return double.NaN;
+                return JsNumber.DoubleNaN;
             }
 
             return MonthFromTime(LocalTime(t));
@@ -185,7 +221,7 @@ namespace Jint.Native.Date
             var t = EnsureDateInstance(thisObj).PrimitiveValue;
             if (double.IsNaN(t))
             {
-                return double.NaN;
+                return JsNumber.DoubleNaN;
             }
 
             return MonthFromTime(t);
@@ -196,7 +232,7 @@ namespace Jint.Native.Date
             var t = EnsureDateInstance(thisObj).PrimitiveValue;
             if (double.IsNaN(t))
             {
-                return double.NaN;
+                return JsNumber.DoubleNaN;
             }
 
             return DateFromTime(LocalTime(t));
@@ -207,7 +243,7 @@ namespace Jint.Native.Date
             var t = EnsureDateInstance(thisObj).PrimitiveValue;
             if (double.IsNaN(t))
             {
-                return double.NaN;
+                return JsNumber.DoubleNaN;
             }
 
             return DateFromTime(t);
@@ -218,7 +254,7 @@ namespace Jint.Native.Date
             var t = EnsureDateInstance(thisObj).PrimitiveValue;
             if (double.IsNaN(t))
             {
-                return double.NaN;
+                return JsNumber.DoubleNaN;
             }
 
             return WeekDay(LocalTime(t));
@@ -229,7 +265,7 @@ namespace Jint.Native.Date
             var t = EnsureDateInstance(thisObj).PrimitiveValue;
             if (double.IsNaN(t))
             {
-                return double.NaN;
+                return JsNumber.DoubleNaN;
             }
 
             return WeekDay(t);
@@ -240,7 +276,7 @@ namespace Jint.Native.Date
             var t = EnsureDateInstance(thisObj).PrimitiveValue;
             if (double.IsNaN(t))
             {
-                return double.NaN;
+                return JsNumber.DoubleNaN;
             }
 
             return HourFromTime(LocalTime(t));
@@ -251,7 +287,7 @@ namespace Jint.Native.Date
             var t = EnsureDateInstance(thisObj).PrimitiveValue;
             if (double.IsNaN(t))
             {
-                return double.NaN;
+                return JsNumber.DoubleNaN;
             }
 
             return HourFromTime(t);
@@ -262,7 +298,7 @@ namespace Jint.Native.Date
             var t = EnsureDateInstance(thisObj).PrimitiveValue;
             if (double.IsNaN(t))
             {
-                return double.NaN;
+                return JsNumber.DoubleNaN;
             }
 
             return MinFromTime(LocalTime(t));
@@ -273,7 +309,7 @@ namespace Jint.Native.Date
             var t = EnsureDateInstance(thisObj).PrimitiveValue;
             if (double.IsNaN(t))
             {
-                return double.NaN;
+                return JsNumber.DoubleNaN;
             }
 
             return MinFromTime(t);
@@ -284,7 +320,7 @@ namespace Jint.Native.Date
             var t = thisObj.TryCast<DateInstance>().PrimitiveValue;
             if (double.IsNaN(t))
             {
-                return double.NaN;
+                return JsNumber.DoubleNaN;
             }
 
             return SecFromTime(LocalTime(t));
@@ -295,7 +331,7 @@ namespace Jint.Native.Date
             var t = EnsureDateInstance(thisObj).PrimitiveValue;
             if (double.IsNaN(t))
             {
-                return double.NaN;
+                return JsNumber.DoubleNaN;
             }
 
             return SecFromTime(t);
@@ -306,7 +342,7 @@ namespace Jint.Native.Date
             var t = EnsureDateInstance(thisObj).PrimitiveValue;
             if (double.IsNaN(t))
             {
-                return double.NaN;
+                return JsNumber.DoubleNaN;
             }
 
             return MsFromTime(LocalTime(t));
@@ -317,7 +353,7 @@ namespace Jint.Native.Date
             var t = EnsureDateInstance(thisObj).PrimitiveValue;
             if (double.IsNaN(t))
             {
-                return double.NaN;
+                return JsNumber.DoubleNaN;
             }
 
             return MsFromTime(t);
@@ -328,7 +364,7 @@ namespace Jint.Native.Date
             var t = EnsureDateInstance(thisObj).PrimitiveValue;
             if (double.IsNaN(t))
             {
-                return double.NaN;
+                return JsNumber.DoubleNaN;
             }
 
             return (t - LocalTime(t))/MsPerMinute;
@@ -492,7 +528,7 @@ namespace Jint.Native.Date
             if (double.IsNaN(y))
             {
                 EnsureDateInstance(thisObj).PrimitiveValue = double.NaN;
-                return double.NaN;
+                return JsNumber.DoubleNaN;
             }
 
             var fy = TypeConverter.ToInteger(y);
@@ -523,9 +559,9 @@ namespace Jint.Native.Date
         private JsValue ToUtcString(JsValue thisObj, JsValue[] arguments)
         {
             return thisObj.TryCast<DateInstance>(x =>
-            {
-                throw new JavaScriptException(Engine.TypeError);
-            } )
+                {
+                    ExceptionHelper.ThrowTypeError(_engine);
+                } )
             .ToDateTime().ToUniversalTime().ToString("ddd MMM dd yyyy HH:mm:ss 'GMT'", CultureInfo.InvariantCulture);
         }
 
@@ -533,12 +569,12 @@ namespace Jint.Native.Date
         {
             var t = thisObj.TryCast<DateInstance>(x =>
             {
-                throw new JavaScriptException(Engine.TypeError);
+                ExceptionHelper.ThrowTypeError(_engine);
             }).PrimitiveValue;
 
             if (double.IsInfinity(t) || double.IsNaN(t))
             {
-                throw new JavaScriptException(Engine.RangeError);
+                ExceptionHelper.ThrowRangeError(_engine);
             }
             double h = HourFromTime(t);
             double m = MinFromTime(t);
@@ -548,29 +584,22 @@ namespace Jint.Native.Date
             if (m < 0) { m += MinutesPerHour; }
             if (s < 0) { s += SecondsPerMinute; }
             if (ms < 0) { ms += MsPerSecond; }
-            return string.Format("{0:0000}-{1:00}-{2:00}T{3:00}:{4:00}:{5:00}.{6:000}Z",
-                YearFromTime(t),
-                MonthFromTime(t)+1,
-                DateFromTime(t),
-                h,
-                m,
-                s,
-                ms);
+            return $"{YearFromTime(t):0000}-{MonthFromTime(t) + 1:00}-{DateFromTime(t):00}T{h:00}:{m:00}:{s:00}.{ms:000}Z";
         }
 
         private JsValue ToJSON(JsValue thisObj, JsValue[] arguments)
         {
             var o = TypeConverter.ToObject(Engine, thisObj);
             var tv = TypeConverter.ToPrimitive(o, Types.Number);
-            if (tv.IsNumber() && double.IsInfinity(tv.AsNumber()))
+            if (tv.IsNumber() && double.IsInfinity(((JsNumber) tv)._value))
             {
-                return JsValue.Null;
+                return Null;
             }
 
             var toIso = o.Get("toISOString");
             if (!toIso.Is<ICallable>())
             {
-                throw new JavaScriptException(Engine.TypeError);
+                ExceptionHelper.ThrowTypeError(Engine);
             }
 
             return toIso.TryCast<ICallable>().Call(o, Arguments.Empty);
@@ -597,14 +626,14 @@ namespace Jint.Native.Date
         /// </summary>
         public static double TimeWithinDay(double t)
         {
-            if (t < 0)
+            var result = t % MsPerDay;
+
+            if (result < 0)
             {
-                return ((t % MsPerDay) + MsPerDay);
+                result += MsPerDay;
             }
-            else
-            {
-                return (t % MsPerDay);
-            }
+
+            return result;
         }
 
         /// <summary>
@@ -661,7 +690,7 @@ namespace Jint.Native.Date
         {
             if (!AreFinite(t))
             {
-                return Double.NaN;
+                return double.NaN;
             }
 
             var sign = (t < 0) ? -1 : 1;
@@ -717,7 +746,8 @@ namespace Jint.Native.Date
                 return 1;
             }
 
-            throw new ArgumentException();
+            ExceptionHelper.ThrowArgumentException();
+            return 0;
         }
 
         /// <summary>
@@ -788,7 +818,8 @@ namespace Jint.Native.Date
                 return 11;
             }
 
-            throw new InvalidOperationException();
+            ExceptionHelper.ThrowInvalidOperationException();
+            return 0;
         }
 
         public static double DayWithinYear(double t)
@@ -861,7 +892,8 @@ namespace Jint.Native.Date
                 return dayWithinYear - 333 - InLeapYear(t);
             }
 
-            throw new InvalidOperationException();
+            ExceptionHelper.ThrowInvalidOperationException();
+            return 0;
         }
 
         /// <summary>
@@ -872,13 +904,7 @@ namespace Jint.Native.Date
             return (Day(t) + 4)%7;
         }
 
-        public double LocalTza
-        {
-            get
-            {
-                return Engine.Options._LocalTimeZone.BaseUtcOffset.TotalMilliseconds;
-            }
-        }
+        public double LocalTza => Engine.Options._LocalTimeZone.BaseUtcOffset.TotalMilliseconds;
 
         public double DaylightSavingTa(double t)
         {
@@ -1025,8 +1051,8 @@ namespace Jint.Native.Date
                 case 1:
                     return 28 + leap;
                 default:
-                    throw new ArgumentOutOfRangeException("month");
-
+                    ExceptionHelper.ThrowArgumentOutOfRangeException(nameof(month), "invalid month");
+                    return 0;
             }
         }
 

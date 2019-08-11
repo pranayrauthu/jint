@@ -10,22 +10,18 @@ namespace Jint.Runtime.Descriptors.Specialized
         private readonly FieldInfo _fieldInfo;
         private readonly object _item;
 
-        public FieldInfoDescriptor(Engine engine, FieldInfo fieldInfo, object item)
+        public FieldInfoDescriptor(Engine engine, FieldInfo fieldInfo, object item) : base(PropertyFlag.CustomJsValue)
         {
             _engine = engine;
             _fieldInfo = fieldInfo;
             _item = item;
 
-            Writable = !fieldInfo.Attributes.HasFlag(FieldAttributes.InitOnly); // don't write to fields marked as readonly
+            Writable = !fieldInfo.Attributes.HasFlag(FieldAttributes.InitOnly) && engine.Options._IsClrWriteAllowed; // don't write to fields marked as readonly
         }
 
-        public override JsValue Value
+        protected internal override JsValue CustomValue
         {
-            get
-            {
-                return JsValue.FromObject(_engine, _fieldInfo.GetValue(_item));
-            }
-
+            get => JsValue.FromObject(_engine, _fieldInfo.GetValue(_item));
             set
             {
                 var currentValue = value;

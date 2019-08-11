@@ -1,9 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Linq.Expressions;
 using System.Reflection;
 using Jint.Native;
 using Jint.Native.Array;
 using Jint.Native.Object;
+using Jint.Runtime.Interop;
 using Jint.Tests.Runtime.Converters;
 using Jint.Tests.Runtime.Domain;
 using Shapes;
@@ -121,6 +125,22 @@ namespace Jint.Tests.Runtime
         }
 
         [Fact]
+        public void DynamicDelegateCanBeSet()
+        {
+#if NETFRAMEWORK
+            var parameters = new[] { Expression.Parameter(typeof(int)), Expression.Parameter(typeof(int)) };
+            var exp = Expression.Add(parameters[0], parameters[1]);
+            var del = Expression.Lambda(exp, parameters).Compile();
+
+            _engine.SetValue("add", del);
+            
+            RunTest(@"
+                assert(add(1,1) === 2);
+            ");
+#endif
+        }
+
+        [Fact]
         public void ExtraParametersAreIgnored()
         {
             _engine.SetValue("passNumber", new Func<int, int>(x => x));
@@ -149,6 +169,28 @@ namespace Jint.Tests.Runtime
                 assert(callArgumentAndParams('a','1') === 'a:1');
                 assert(callArgumentAndParams('a') === 'a:');
                 assert(callArgumentAndParams() === ':');
+            ");
+        }
+
+        [Fact]
+        public void DelegateWithDefaultValueParametersCanBeInvoked()
+        {
+            var instance = new A();
+            _engine.SetValue("Instance", instance);
+            _engine.SetValue("Class", TypeReference.CreateTypeReference(_engine, typeof(A)));
+
+            RunTest(@"
+                assert(Instance.Call19() === 0);
+                assert(Instance.Call19(1) === 1);
+                assert(Instance.Call20(1) === 4);
+                assert(Instance.Call20(1, 2) === 5);
+                assert(Instance.Call20(1 , 2, 3) === 6);
+
+                assert(Class.Call19Static() === 0);
+                assert(Class.Call19Static(1) === 1);
+                assert(Class.Call20Static(1) === 4);
+                assert(Class.Call20Static(1, 2) === 5);
+                assert(Class.Call20Static(1 , 2, 3) === 6);
             ");
         }
 
@@ -1153,6 +1195,83 @@ namespace Jint.Tests.Runtime
             Assert.Equal(Colors.Blue | Colors.Green, s.Color);
         }
 
+        enum TestEnumInt32 : int
+        {
+            None,
+            One = 1,
+            Min = int.MaxValue,
+            Max = int.MaxValue,
+        }
+
+        enum TestEnumUInt32 : uint
+        {
+            None,
+            One = 1,
+            Min = uint.MaxValue,
+            Max = uint.MaxValue,
+        }
+
+        enum TestEnumInt64 : long
+        {
+            None,
+            One = 1,
+            Min = long.MaxValue,
+            Max = long.MaxValue,
+        }
+
+        enum TestEnumUInt64 : ulong
+        {
+            None,
+            One = 1,
+            Min = ulong.MaxValue,
+            Max = ulong.MaxValue,
+        }
+
+        void TestEnum<T>(T enumValue)
+        {
+            object i = Convert.ChangeType(enumValue, Enum.GetUnderlyingType(typeof(T)));
+            string s = Convert.ToString(i, CultureInfo.InvariantCulture);
+            var o = new Tuple<T>(enumValue);
+            _engine.SetValue("o", o);
+            RunTest("assert(o.Item1 === " + s + ");");
+        }
+
+        [Fact]
+        public void ShouldWorkWithEnumInt32()
+        {
+            TestEnum(TestEnumInt32.None);
+            TestEnum(TestEnumInt32.One);
+            TestEnum(TestEnumInt32.Min);
+            TestEnum(TestEnumInt32.Max);
+        }
+
+        [Fact]
+        public void ShouldWorkWithEnumUInt32()
+        {
+            TestEnum(TestEnumUInt32.None);
+            TestEnum(TestEnumUInt32.One);
+            TestEnum(TestEnumUInt32.Min);
+            TestEnum(TestEnumUInt32.Max);
+        }
+
+        [Fact]
+        public void ShouldWorkWithEnumInt64()
+        {
+            TestEnum(TestEnumInt64.None);
+            TestEnum(TestEnumInt64.One);
+            TestEnum(TestEnumInt64.Min);
+            TestEnum(TestEnumInt64.Max);
+        }
+
+        [Fact]
+        public void ShouldWorkWithEnumUInt64()
+        {
+            TestEnum(TestEnumUInt64.None);
+            TestEnum(TestEnumUInt64.One);
+            TestEnum(TestEnumUInt64.Min);
+            TestEnum(TestEnumUInt64.Max);
+        }
+
         [Fact]
         public void EnumIsConvertedToNumber()
         {
@@ -1171,7 +1290,6 @@ namespace Jint.Tests.Runtime
                 assert(o.b === 10);
             ");
         }
-
 
         [Fact]
         public void ShouldConvertToEnum()
@@ -1221,7 +1339,6 @@ namespace Jint.Tests.Runtime
             ");
         }
 
-
         [Fact]
         public void ShouldUseExplicitPropertySetter()
         {
@@ -1245,7 +1362,6 @@ namespace Jint.Tests.Runtime
                 assert(c.Foo === 'Baz');
             ");
         }
-
 
         [Fact]
         public void ShouldUseExplicitMethod()
@@ -1335,8 +1451,8 @@ namespace Jint.Tests.Runtime
         public void ShouldReturnUndefinedProperty()
         {
             _engine.SetValue("uo", new { foo = "bar" });
-            _engine.SetValue("ud", new Dictionary<string, object>() { {"foo", "bar"} });
-            _engine.SetValue("ul", new List<string>() { "foo", "bar" });
+            _engine.SetValue("ud", new Dictionary<string, object> { {"foo", "bar"} });
+            _engine.SetValue("ul", new List<string> { "foo", "bar" });
 
             RunTest(@"
                 assert(!uo.undefinedProperty);
@@ -1564,6 +1680,109 @@ namespace Jint.Tests.Runtime
             Assert.Equal(engine.Invoke("throwException2").AsString(), exceptionMessage);
         }
 
+        class MemberExceptionTest
+        {
+            public MemberExceptionTest(bool throwOnCreate)
+            {
+                if (throwOnCreate)
+                    throw new InvalidOperationException();
+            }
+
+            public JsValue ThrowingProperty1
+            {
+                get { throw new InvalidOperationException(); }
+                set { throw new InvalidOperationException(); }
+            }
+
+            public object ThrowingProperty2
+            {
+                get { throw new InvalidOperationException(); }
+                set { throw new InvalidOperationException(); }
+            }
+
+            public void ThrowingFunction()
+            {
+                throw new InvalidOperationException();
+            }
+        }
+
+        [Fact]
+        public void ShouldCatchClrMemberExceptions()
+        {
+            var engine = new Engine(cfg =>
+            {
+                cfg.AllowClr();
+                cfg.CatchClrExceptions();
+            });
+
+            engine.SetValue("assert", new Action<bool>(Assert.True));
+            engine.SetValue("log", new Action<object>(Console.WriteLine));
+            engine.SetValue("create", typeof(MemberExceptionTest));
+            engine.SetValue("instance", new MemberExceptionTest(throwOnCreate: false));
+
+            // Test calling a constructor that throws an exception
+            engine.Execute(@"
+                try
+                {
+                    create(true);
+                    assert(false);
+                }
+                catch (e)
+                {
+                    assert(true);
+                }
+            ");
+
+            // Test calling a member function that throws an exception
+            engine.Execute(@"
+                try
+                {
+                    instance.ThrowingFunction();
+                    assert(false);
+                }
+                catch (e)
+                {
+                    assert(true);
+                }
+            ");
+
+            // Test using a property getter that throws an exception
+            engine.Execute(@"
+                try
+                {
+                    log(o.ThrowingProperty);
+                    assert(false);
+                }
+                catch (e)
+                {
+                    assert(true);
+                }
+            ");
+
+            // Test using a property setter that throws an exception
+            engine.Execute(@"
+                try
+                {
+                    instance.ThrowingProperty1 = 123;
+                    assert(false);
+                }
+                catch (e)
+                {
+                    assert(true);
+                }
+
+                try
+                {
+                    instance.ThrowingProperty2 = 456;
+                    assert(false);
+                }
+                catch (e)
+                {
+                    assert(true);
+                }
+            ");
+        }
+
         [Fact]
         public void ShouldCatchSomeExceptions()
         {
@@ -1620,5 +1839,92 @@ namespace Jint.Tests.Runtime
             Assert.Equal(engine.Invoke("throwException3").AsString(), exceptionMessage);
             Assert.Throws<ArgumentNullException>(() => engine.Invoke("throwException4"));
         }
+        
+        [Fact]
+        public void ArrayFromShouldConvertListToArrayLike()
+        {
+            var list = new List<Person>
+            {
+                new Person {Name = "Mike"},
+                new Person {Name = "Mika"}
+            };
+            _engine.SetValue("a", list);
+
+            RunTest(@"
+                var arr = new Array(a);
+                assert(arr.length === 2);
+                assert(arr[0].Name === 'Mike');
+                assert(arr[1].Name === 'Mika');
+            ");
+
+            RunTest(@"
+                var arr = Array.from(a);
+                assert(arr.length === 2);
+                assert(arr[0].Name === 'Mike');
+                assert(arr[1].Name === 'Mika');
+            ");
+        }
+        
+        [Fact]
+        public void ArrayFromShouldConvertArrayToArrayLike()
+        {
+            var list = new []
+            {
+                new Person {Name = "Mike"},
+                new Person {Name = "Mika"}
+            };
+            _engine.SetValue("a", list);
+
+            RunTest(@"
+                var arr = new Array(a);
+                assert(arr.length === 2);
+                assert(arr[0].Name === 'Mike');
+                assert(arr[1].Name === 'Mika');
+            ");
+
+            RunTest(@"
+                var arr = Array.from(a);
+                assert(arr.length === 2);
+                assert(arr[0].Name === 'Mike');
+                assert(arr[1].Name === 'Mika');
+            ");
+        }
+        
+        [Fact]
+        public void ArrayFromShouldConvertIEnumerable()
+        {
+            var enumerable = new []
+            {
+                new Person {Name = "Mike"},
+                new Person {Name = "Mika"}
+            }.Select(x => x);
+            
+            _engine.SetValue("a", enumerable);
+
+            RunTest(@"
+                var arr = new Array(a);
+                assert(arr.length === 2);
+                assert(arr[0].Name === 'Mike');
+                assert(arr[1].Name === 'Mika');
+            ");
+
+            RunTest(@"
+                var arr = Array.from(a);
+                assert(arr.length === 2);
+                assert(arr[0].Name === 'Mike');
+                assert(arr[1].Name === 'Mika');
+            ");
+        }
+
+        [Fact]
+        public void ShouldBeAbleToPlusAssignStringProperty()
+        {
+            var p = new Person();
+            var engine = new Engine();
+            engine.SetValue("P", p);
+            engine.Execute("P.Name = 'b';");
+            engine.Execute("P.Name += 'c';");
+            Assert.Equal("bc", p.Name);
+        } 
     }
 }

@@ -10,41 +10,57 @@ namespace Jint.Runtime.Descriptors.Specialized
         private readonly PropertyInfo _propertyInfo;
         private readonly object _item;
 
-        public PropertyInfoDescriptor(Engine engine, PropertyInfo propertyInfo, object item)
+        public PropertyInfoDescriptor(Engine engine, PropertyInfo propertyInfo, object item) : base(PropertyFlag.CustomJsValue)
         {
             _engine = engine;
             _propertyInfo = propertyInfo;
             _item = item;
 
-            Writable = propertyInfo.CanWrite;
+            Writable = propertyInfo.CanWrite && engine.Options._IsClrWriteAllowed;
         }
 
-        public override JsValue Value
+        protected internal override JsValue CustomValue
         {
             get
             {
-                return JsValue.FromObject(_engine, _propertyInfo.GetValue(_item, null));
-            }
+                object v;
+                try
+                {
+                    v = _propertyInfo.GetValue(_item, null);
+                }
+                catch (TargetInvocationException exception)
+                {
+                    ExceptionHelper.ThrowMeaningfulException(_engine, exception);
+                    throw;
+                }
 
+                return JsValue.FromObject(_engine, v);
+            }
             set
             {
-                var currentValue = value;
                 object obj;
-                if (_propertyInfo.PropertyType == typeof (JsValue))
+                if (_propertyInfo.PropertyType == typeof(JsValue))
                 {
-                    obj = currentValue;
+                    obj = value;
                 }
                 else
                 {
                     // attempt to convert the JsValue to the target type
-                    obj = currentValue.ToObject();
+                    obj = value.ToObject();
                     if (obj != null && obj.GetType() != _propertyInfo.PropertyType)
                     {
                         obj = _engine.ClrTypeConverter.Convert(obj, _propertyInfo.PropertyType, CultureInfo.InvariantCulture);
                     }
                 }
 
-                _propertyInfo.SetValue(_item, obj, null);
+                try
+                {
+                    _propertyInfo.SetValue(_item, obj, null);
+                }
+                catch (TargetInvocationException exception)
+                {
+                    ExceptionHelper.ThrowMeaningfulException(_engine, exception);
+                }
             }
         }
     }

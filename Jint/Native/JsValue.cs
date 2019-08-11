@@ -2,12 +2,16 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.Contracts;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using Jint.Native.Array;
 using Jint.Native.Date;
+using Jint.Native.Iterator;
 using Jint.Native.Object;
 using Jint.Native.RegExp;
+using Jint.Native.Symbol;
 using Jint.Runtime;
+using Jint.Runtime.Descriptors;
 using Jint.Runtime.Interop;
 
 namespace Jint.Native
@@ -17,174 +21,255 @@ namespace Jint.Native
     {
         public static readonly JsValue Undefined = new JsUndefined();
         public static readonly JsValue Null = new JsNull();
+        internal readonly Types _type;
+
+        protected JsValue(Types type)
+        {
+            _type = type;
+        }
 
         [Pure]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool IsPrimitive()
         {
-            return Type != Types.Object && Type != Types.None;
+            return _type != Types.Object && _type != Types.None;
         }
 
         [Pure]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool IsUndefined()
         {
-            return Type == Types.Undefined;
+            return _type == Types.Undefined;
         }
 
         [Pure]
-        public virtual bool IsArray()
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal bool IsNullOrUndefined()
         {
-            return false;
+            return _type < Types.Boolean;
         }
 
         [Pure]
-        public virtual bool IsDate()
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool IsArray()
         {
-            return false;
+            return this is ArrayInstance;
         }
 
         [Pure]
-        public virtual bool IsRegExp()
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool IsDate()
         {
-            return false;
+            return this is DateInstance;
         }
 
         [Pure]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool IsRegExp()
+        {
+            return this is RegExpInstance;
+        }
+
+        [Pure]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool IsObject()
         {
-            return Type == Types.Object;
+            return _type == Types.Object;
         }
 
         [Pure]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool IsString()
         {
-            return Type == Types.String;
+            return _type == Types.String;
         }
 
         [Pure]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool IsNumber()
         {
-            return Type == Types.Number;
+            return _type == Types.Number;
         }
 
         [Pure]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool IsBoolean()
         {
-            return Type == Types.Boolean;
+            return _type == Types.Boolean;
         }
 
         [Pure]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool IsNull()
         {
-            return Type == Types.Null;
+            return _type == Types.Null;
         }
 
         [Pure]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool IsCompletion()
         {
-            return Type == Types.Completion;
+            return _type == Types.Completion;
         }
 
         [Pure]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool IsSymbol()
         {
-            return Type == Types.Symbol;
+            return _type == Types.Symbol;
         }
 
         [Pure]
-        public virtual ObjectInstance AsObject()
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public ObjectInstance AsObject()
         {
-            throw new ArgumentException("The value is not an object");
-        }
-
-        [Pure]
-        public virtual TInstance AsInstance<TInstance>() where TInstance : class
-        {
-            throw new ArgumentException("The value is not an object");
-        }
-
-        [Pure]
-        public virtual ArrayInstance AsArray()
-        {
-            throw new ArgumentException("The value is not an array");
-        }
-
-        [Pure]
-        public virtual DateInstance AsDate()
-        {
-            throw new ArgumentException("The value is not a date");
-        }
-
-        [Pure]
-        public virtual RegExpInstance AsRegExp()
-        {
-            throw new ArgumentException("The value is not a date");
-        }
-
-        [Pure]
-        public virtual Completion AsCompletion()
-        {
-            if (Type != Types.Completion)
+            if (!IsObject())
             {
-                throw new ArgumentException("The value is not a completion record");
+                ExceptionHelper.ThrowArgumentException("The value is not an object");
+            }
+            return this as ObjectInstance;
+        }
+
+        [Pure]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public TInstance AsInstance<TInstance>() where TInstance : class
+        {
+            if (!IsObject())
+            {
+                ExceptionHelper.ThrowArgumentException("The value is not an object");
+            }
+            return this as TInstance;
+        }
+
+        [Pure]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public ArrayInstance AsArray()
+        {
+            if (!IsArray())
+            {
+                ExceptionHelper.ThrowArgumentException("The value is not an array");
+            }
+            return this as ArrayInstance;
+        }
+
+        [Pure]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal IIterator GetIterator(Engine engine)
+        {
+            if (!TryGetIterator(engine, out var iterator))
+            {
+                return ExceptionHelper.ThrowTypeError<IIterator>(engine, "The value is not iterable");
+            }
+
+            return iterator;
+        }
+        
+        [Pure]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal bool TryGetIterator(Engine engine, out IIterator iterator)
+        {
+            var objectInstance = TypeConverter.ToObject(engine, this);
+
+            if (!objectInstance.TryGetValue(GlobalSymbolRegistry.Iterator._value, out var value)
+                || !(value is ICallable callable))
+            {
+                iterator = null;
+                return false;
+            }
+
+            var obj = callable.Call(this, Arguments.Empty) as ObjectInstance
+                      ?? ExceptionHelper.ThrowTypeError<ObjectInstance>(engine, "Result of the Symbol.iterator method is not an object");
+
+            if (obj is IIterator i)
+            {
+                iterator = i;
+            }
+            else
+            {
+                iterator = new IteratorInstance.ObjectWrapper(obj);
+            }
+            return true;
+        }
+
+        [Pure]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public DateInstance AsDate()
+        {
+            if (!IsDate())
+            {
+                ExceptionHelper.ThrowArgumentException("The value is not a date");
+            }
+            return this as DateInstance;
+        }
+
+        [Pure]
+        public RegExpInstance AsRegExp()
+        {
+            if (!IsRegExp())
+            {
+                ExceptionHelper.ThrowArgumentException("The value is not a regex");
+            }
+
+            return this as RegExpInstance;
+        }
+
+        [Pure]
+        public Completion AsCompletion()
+        {
+            if (_type != Types.Completion)
+            {
+                ExceptionHelper.ThrowArgumentException("The value is not a completion record");
             }
 
             // TODO not implemented
+            return new Completion(CompletionType.Normal, Native.Undefined.Instance, null, default);
+        }
+
+        [Pure]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public T TryCast<T>() where T : class
+        {
+            return this as T;
+        }
+
+        [Pure]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public T TryCast<T>(Action<JsValue> fail) where T : class
+        {
+            if (this is T o)
+            {
+                return o;
+            }
+
+            fail.Invoke(this);
+
             return null;
         }
 
         [Pure]
-        public T TryCast<T>(Action<JsValue> fail = null) where T : class
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool Is<T>()
+        {
+            return IsObject() && this is T;
+        }
+
+        [Pure]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public T As<T>() where T : ObjectInstance
         {
             if (IsObject())
             {
-                var o = AsObject();
-                var t = o as T;
-                if (t != null)
-                {
-                    return t;
-                }
+                return this as T;
             }
-
-            fail?.Invoke(this);
-
             return null;
         }
 
-        public virtual bool Is<T>()
+        // ReSharper disable once ConvertToAutoPropertyWhenPossible // PERF
+        public Types Type
         {
-            return false;
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get { return _type; }
         }
-
-        public virtual T As<T>() where T : ObjectInstance
-        {
-            return null;
-        }
-
-        [Pure]
-        public virtual bool AsBoolean()
-        {
-            throw new ArgumentException("The value is not a boolean");
-        }
-
-        [Pure]
-        public virtual string AsString()
-        {
-            throw new ArgumentException("The value is not a string");
-        }
-
-        [Pure]
-        public virtual string AsSymbol()
-        {
-            throw new ArgumentException("The value is not a symbol");
-        }
-
-        [Pure]
-        public virtual double AsNumber()
-        {
-            throw new ArgumentException("The value is not a number");
-        }
-
-        public abstract Types Type { get; }
 
         /// <summary>
         /// Creates a valid <see cref="JsValue"/> instance from any <see cref="Object"/> instance
@@ -204,9 +289,12 @@ namespace Jint.Native
                 return jsValue;
             }
 
-            foreach (var converter in engine.Options._ObjectConverters)
+            var converters = engine.Options._ObjectConverters;
+            var convertersCount = converters.Count;
+            for (var i = 0; i < convertersCount; i++)
             {
-                if (converter.TryConvert(value, out var result))
+                var converter = converters[i];
+                if (converter.TryConvert(engine, value, out var result))
                 {
                     return result;
                 }
@@ -230,25 +318,12 @@ namespace Jint.Native
 
             if (value is System.Array a)
             {
-                JsValue Convert(Engine e, object v)
-                {
-                    var array = (System.Array)v;
-
-                    var jsArray = engine.Array.Construct(a.Length);
-                    foreach (var item in array)
-                    {
-                        var jsItem = FromObject(engine, item);
-                        engine.Array.PrototypeObject.Push(jsArray, Arguments.From(jsItem));
-                    }
-
-                    return jsArray;
-                }
-
                 // racy, we don't care, worst case we'll catch up later
                 Interlocked.CompareExchange(ref Engine.TypeMappers, new Dictionary<Type, Func<Engine, object, JsValue>>(typeMappers)
                 {
                     [valueType] = Convert
                 }, typeMappers);
+
                 return Convert(engine, a);
             }
 
@@ -257,13 +332,44 @@ namespace Jint.Native
                 return new DelegateWrapper(engine, d);
             }
 
-            if (value.GetType().IsEnum())
+            Type t = value.GetType();
+            if (t.IsEnum)
             {
-                return JsNumber.Create((int)value);
+                Type ut = Enum.GetUnderlyingType(t);
+
+                if (ut == typeof(ulong))
+                    return JsNumber.Create(System.Convert.ToDouble(value));
+
+                if (ut == typeof(uint) || ut == typeof(long))
+                    return JsNumber.Create(System.Convert.ToInt64(value));
+
+                return JsNumber.Create(System.Convert.ToInt32(value));
             }
 
             // if no known type could be guessed, wrap it as an ObjectInstance
-            return new ObjectWrapper(engine, value);
+            var h = engine.Options._WrapObjectHandler;
+            ObjectInstance o = h != null ? h(value) : null;
+            return o ?? new ObjectWrapper(engine, value);
+        }
+
+        private static JsValue Convert(Engine e, object v)
+        {
+            var array = (System.Array) v;
+            var arrayLength = (uint) array.Length;
+
+            var jsArray = new ArrayInstance(e, arrayLength);
+            jsArray.Prototype = e.Array.PrototypeObject;
+            jsArray.Extensible = true;
+
+            for (uint i = 0; i < arrayLength; ++i)
+            {
+                var jsItem = FromObject(e, array.GetValue(i));
+                jsArray.WriteArrayValue(i, new PropertyDescriptor(jsItem, PropertyFlag.ConfigurableEnumerableWritable));
+            }
+
+            jsArray.SetOwnProperty(KnownKeys.Length, new PropertyDescriptor(arrayLength, PropertyFlag.OnlyWritable));
+
+            return jsArray;
         }
 
         /// <summary>
@@ -290,13 +396,7 @@ namespace Jint.Native
         /// <returns>The value returned by the function call.</returns>
         public JsValue Invoke(JsValue thisObj, JsValue[] arguments)
         {
-            var callable = TryCast<ICallable>();
-
-            if (callable == null)
-            {
-                throw new ArgumentException("Can only invoke functions");
-            }
-
+            var callable = this as ICallable ?? ExceptionHelper.ThrowArgumentException<ICallable>("Can only invoke functions");
             return callable.Call(thisObj, arguments);
         }
 
@@ -417,7 +517,7 @@ namespace Jint.Native
 
         public override int GetHashCode()
         {
-            return Type.GetHashCode();
+            return _type.GetHashCode();
         }
 
         internal class JsValueDebugView
@@ -438,13 +538,13 @@ namespace Jint.Native
                         Value = "null";
                         break;
                     case Types.Boolean:
-                        Value = value.AsBoolean() + " (bool)";
+                        Value = ((JsBoolean) value)._value + " (bool)";
                         break;
                     case Types.String:
-                        Value = value.AsString() + " (string)";
+                        Value = value.AsStringWithoutTypeCheck() + " (string)";
                         break;
                     case Types.Number:
-                        Value = value.AsNumber() + " (number)";
+                        Value = ((JsNumber) value)._value + " (number)";
                         break;
                     case Types.Object:
                         Value = value.AsObject().GetType().Name;

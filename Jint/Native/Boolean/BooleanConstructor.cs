@@ -1,13 +1,16 @@
 ﻿using Jint.Native.Function;
 using Jint.Native.Object;
 using Jint.Runtime;
-using Jint.Runtime.Descriptors.Specialized;
+using Jint.Runtime.Descriptors;
 
 namespace Jint.Native.Boolean
 {
     public sealed class BooleanConstructor : FunctionInstance, IConstructor
     {
-        private BooleanConstructor(Engine engine): base(engine, null, null, false)
+        private static readonly JsString _functionName = new JsString("Boolean");
+
+        private BooleanConstructor(Engine engine)
+            : base(engine, _functionName, strict: false)
         {
         }
 
@@ -20,17 +23,12 @@ namespace Jint.Native.Boolean
             obj.Prototype = engine.Function.PrototypeObject;
             obj.PrototypeObject = BooleanPrototype.CreatePrototypeObject(engine, obj);
 
-            obj.SetOwnProperty("length", new AllForbiddenPropertyDescriptor(1));
+            obj._length = PropertyDescriptor.AllForbiddenDescriptor.NumberOne;
 
             // The initial value of Boolean.prototype is the Boolean prototype object
-            obj.SetOwnProperty("prototype", new AllForbiddenPropertyDescriptor(obj.PrototypeObject));
+            obj._prototype = new PropertyDescriptor(obj.PrototypeObject, PropertyFlag.AllForbidden);
 
             return obj;
-        }
-
-        public void Configure()
-        {
-
         }
 
         public override JsValue Call(JsValue thisObject, JsValue[] arguments)
@@ -57,10 +55,17 @@ namespace Jint.Native.Boolean
 
         public BooleanInstance Construct(bool value)
         {
-            var instance = new BooleanInstance(Engine);
-            instance.Prototype = PrototypeObject;
-            instance.PrimitiveValue = value;
-            instance.Extensible = true;
+            return Construct(value ? JsBoolean.True : JsBoolean.False);
+        }
+        
+        public BooleanInstance Construct(JsBoolean value)
+        {
+            var instance = new BooleanInstance(Engine)
+            {
+                Prototype = PrototypeObject,
+                PrimitiveValue = value,
+                Extensible = true
+            };
 
             return instance;
         }

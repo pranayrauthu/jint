@@ -1,22 +1,19 @@
-﻿using Jint.Native.Object;
+﻿using Jint.Collections;
+using Jint.Native.Object;
 using Jint.Runtime;
+using Jint.Runtime.Descriptors;
 
 namespace Jint.Native.Error
 {
     public class ErrorInstance : ObjectInstance
     {
-        public ErrorInstance(Engine engine, string name)
-            : base(engine)
+        public ErrorInstance(Engine engine, JsString name)
+            : base(engine, objectClass: "Error")
         {
-            FastAddProperty("name", name, true, false, true);
-        }
-
-        public override string Class
-        {
-            get
+            _properties = new StringDictionarySlim<PropertyDescriptor>(2)
             {
-                return "Error";
-            }
+                ["name"] = new PropertyDescriptor(name, true, false, true)
+            };
         }
 
         public override string ToString()

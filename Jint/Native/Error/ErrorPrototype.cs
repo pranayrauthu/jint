@@ -1,6 +1,6 @@
 ﻿using Jint.Native.Object;
 using Jint.Runtime;
-using Jint.Runtime.Descriptors.Specialized;
+using Jint.Runtime.Descriptors;
 using Jint.Runtime.Interop;
 
 namespace Jint.Native.Error
@@ -10,16 +10,20 @@ namespace Jint.Native.Error
     /// </summary>
     public sealed class ErrorPrototype : ErrorInstance
     {
-        private ErrorPrototype(Engine engine, string name)
+        private ErrorConstructor _errorConstructor;
+
+        private ErrorPrototype(Engine engine, JsString name)
             : base(engine, name)
         {
         }
 
-        public static ErrorPrototype CreatePrototypeObject(Engine engine, ErrorConstructor errorConstructor, string name)
+        public static ErrorPrototype CreatePrototypeObject(Engine engine, ErrorConstructor errorConstructor, JsString name)
         {
-            var obj = new ErrorPrototype(engine, name) { Extensible = true };
-            obj.SetOwnProperty("constructor", new NonEnumerablePropertyDescriptor(errorConstructor));
-            obj.FastAddProperty("message", "", true, false, true);
+            var obj = new ErrorPrototype(engine, name)
+            {
+                Extensible = true,
+                _errorConstructor = errorConstructor,
+            };
 
             if (name != "Error")
             {
@@ -33,25 +37,26 @@ namespace Jint.Native.Error
             return obj;
         }
 
-        public void Configure()
+        protected override void Initialize()
         {
-            // Error prototype functions
-            FastAddProperty("toString", new ClrFunctionInstance(Engine, ToString), true, false, true);
+            _properties["constructor"] = new PropertyDescriptor(_errorConstructor, PropertyFlag.NonEnumerable);
+            _properties["message"] = new PropertyDescriptor("", true, false, true);
+            _properties["toString"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "toString", ToString), true, false, true);
         }
 
         public JsValue ToString(JsValue thisObject, JsValue[] arguments)
         {
             var o = thisObject.TryCast<ObjectInstance>();
-            if (o == null)
+            if (ReferenceEquals(o, null))
             {
-                throw new JavaScriptException(Engine.TypeError);
+                ExceptionHelper.ThrowTypeError(Engine);
             }
 
             var name = TypeConverter.ToString(o.Get("name"));
 
             var msgProp = o.Get("message");
             string msg;
-            if (ReferenceEquals(msgProp, Undefined))
+            if (msgProp.IsUndefined())
             {
                 msg = "";
             }

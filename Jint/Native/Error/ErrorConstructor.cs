@@ -1,39 +1,37 @@
 ﻿using Jint.Native.Function;
 using Jint.Native.Object;
 using Jint.Runtime;
-using Jint.Runtime.Descriptors.Specialized;
+using Jint.Runtime.Descriptors;
 
 namespace Jint.Native.Error
 {
-    public class ErrorConstructor : FunctionInstance, IConstructor
+    public sealed class ErrorConstructor : FunctionInstance, IConstructor
     {
-        private string _name;
+        private JsString _name;
+        private static readonly JsString _functionName = new JsString("Error");
 
-        public ErrorConstructor(Engine engine) : base(engine, null, null, false)
+        public ErrorConstructor(Engine engine) : base(engine, _functionName, strict: false)
         {
         }
 
-        public static ErrorConstructor CreateErrorConstructor(Engine engine, string name)
+        public static ErrorConstructor CreateErrorConstructor(Engine engine, JsString name)
         {
-            var obj = new ErrorConstructor(engine);
-            obj.Extensible = true;
-            obj._name = name;
+            var obj = new ErrorConstructor(engine)
+            {
+                Extensible = true,
+                _name = name,
+                Prototype = engine.Function.PrototypeObject
+            };
 
             // The value of the [[Prototype]] internal property of the Error constructor is the Function prototype object (15.11.3)
-            obj.Prototype = engine.Function.PrototypeObject;
             obj.PrototypeObject = ErrorPrototype.CreatePrototypeObject(engine, obj, name);
 
-            obj.SetOwnProperty("length", new AllForbiddenPropertyDescriptor(1));
+            obj._length = PropertyDescriptor.AllForbiddenDescriptor.NumberOne;
 
             // The initial value of Error.prototype is the Error prototype object
-            obj.SetOwnProperty("prototype", new AllForbiddenPropertyDescriptor(obj.PrototypeObject));
+            obj._prototype = new PropertyDescriptor(obj.PrototypeObject, PropertyFlag.AllForbidden);
 
             return obj;
-        }
-
-        public void Configure()
-        {
-
         }
 
         public override JsValue Call(JsValue thisObject, JsValue[] arguments)
@@ -47,9 +45,10 @@ namespace Jint.Native.Error
             instance.Prototype = PrototypeObject;
             instance.Extensible = true;
 
-            if (arguments.At(0) != Undefined)
+            var jsValue = arguments.At(0);
+            if (!jsValue.IsUndefined())
             {
-                instance.Put("message", TypeConverter.ToString(arguments.At(0)), false);
+                instance.Put("message", TypeConverter.ToString(jsValue), false);
             }
 
             return instance;

@@ -12,101 +12,91 @@ namespace Jint.Native.Argument
     /// <summary>
     /// http://www.ecma-international.org/ecma-262/5.1/#sec-10.6
     /// </summary>
-    public class ArgumentsInstance : ObjectInstance
+    public sealed class ArgumentsInstance : ObjectInstance
     {
         // cache key container for array iteration for less allocations
         private static readonly ThreadLocal<HashSet<string>> _mappedNamed = new ThreadLocal<HashSet<string>>(() => new HashSet<string>());
 
         private FunctionInstance _func;
         private string[] _names;
-        private JsValue[] _args;
+        internal JsValue[] _args;
         private EnvironmentRecord _env;
         private bool _strict;
 
-        private bool _initialized;
+        internal bool _initialized;
 
-        internal ArgumentsInstance(Engine engine) : base(engine)
+        internal ArgumentsInstance(Engine engine) : base(engine, objectClass: "Arguments")
         {
         }
 
-        internal void Prepare(FunctionInstance func, string[] names, JsValue[] args, EnvironmentRecord env, bool strict)
+        internal void Prepare(
+            FunctionInstance func, 
+            string[] names, 
+            JsValue[] args, 
+            EnvironmentRecord env, 
+            bool strict)
         {
-            Clear();
-
             _func = func;
             _names = names;
             _args = args;
             _env = env;
             _strict = strict;
 
+            _properties?.Clear();
+            
             _initialized = false;
         }
 
-        public bool Strict { get; set; }
-
-        protected override void EnsureInitialized()
+        protected override void Initialize()
         {
-            if (_initialized)
-            {
-                return;
-            }
+            var args = _args;
+            SetOwnProperty(KnownKeys.Length, new PropertyDescriptor(args.Length, PropertyFlag.NonEnumerable));
 
-            _initialized = true;
-
-            var self = this;
-            var len = _args.Length;
-            self.SetOwnProperty("length", new NonEnumerablePropertyDescriptor(len));
-            if (_args.Length > 0)
+            ObjectInstance map = null;
+            if (args.Length > 0)
             {
-                var map = Engine.Object.Construct(Arguments.Empty);
                 var mappedNamed = _mappedNamed.Value;
                 mappedNamed.Clear();
-                for (var indx = 0; indx < len; indx++)
+                for (var i = 0; i < (uint) args.Length; i++)
                 {
-                    var indxStr = TypeConverter.ToString(indx);
-                    var val = _args[indx];
-                    self.SetOwnProperty(indxStr, new ConfigurableEnumerableWritablePropertyDescriptor(val));
-                    if (indx < _names.Length)
+                    var indxStr = (Key) TypeConverter.ToString(i);
+                    var val = args[i];
+                    SetOwnProperty(indxStr, new PropertyDescriptor(val, PropertyFlag.ConfigurableEnumerableWritable));
+                    if (i < _names.Length)
                     {
-                        var name = _names[indx];
+                        var name = _names[i];
                         if (!_strict && !mappedNamed.Contains(name))
                         {
+                            map = map ?? Engine.Object.Construct(Arguments.Empty);
                             mappedNamed.Add(name);
                             map.SetOwnProperty(indxStr, new ClrAccessDescriptor(_env, Engine, name));
                         }
                     }
                 }
-
-                // step 12
-                if (mappedNamed.Count > 0)
-                {
-                    self.ParameterMap = map;
-                }
             }
+
+            ParameterMap = map;
 
             // step 13
             if (!_strict)
             {
-                self.SetOwnProperty("callee", new NonEnumerablePropertyDescriptor(_func));
+                SetOwnProperty(KnownKeys.Callee, new PropertyDescriptor(_func, PropertyFlag.NonEnumerable));
             }
             // step 14
             else
             {
-                var thrower = Engine.Function.ThrowTypeError;
-                self.DefineOwnProperty("caller", new PropertyDescriptor(get: thrower, set: thrower, enumerable: false, configurable: false), false);
-                self.DefineOwnProperty("callee", new PropertyDescriptor(get: thrower, set: thrower, enumerable: false, configurable: false), false);
+                DefineOwnProperty(KnownKeys.Caller, _engine._getSetThrower, false);
+                DefineOwnProperty(KnownKeys.Callee, _engine._getSetThrower, false);
             }
         }
 
         public ObjectInstance ParameterMap { get; set; }
 
-        public override string Class => "Arguments";
-
-        public override IPropertyDescriptor GetOwnProperty(string propertyName)
+        public override PropertyDescriptor GetOwnProperty(in Key propertyName)
         {
             EnsureInitialized();
 
-            if (!Strict && ParameterMap != null)
+            if (!_strict && !ReferenceEquals(ParameterMap, null))
             {
                 var desc = base.GetOwnProperty(propertyName);
                 if (desc == PropertyDescriptor.Undefined)
@@ -114,10 +104,9 @@ namespace Jint.Native.Argument
                     return desc;
                 }
 
-                var isMapped = ParameterMap.GetOwnProperty(propertyName);
-                if (isMapped != PropertyDescriptor.Undefined)
+                if (ParameterMap.TryGetValue(propertyName, out var jsValue) && !jsValue.IsUndefined())
                 {
-                    desc.Value = ParameterMap.Get(propertyName);
+                    desc.Value = jsValue;
                 }
 
                 return desc;
@@ -129,7 +118,7 @@ namespace Jint.Native.Argument
         /// Implementation from ObjectInstance official specs as the one
         /// in ObjectInstance is optimized for the general case and wouldn't work
         /// for arrays
-        public override void Put(string propertyName, JsValue value, bool throwOnError)
+        public override void Put(in Key propertyName, JsValue value, bool throwOnError)
         {
             EnsureInitialized();
 
@@ -137,7 +126,7 @@ namespace Jint.Native.Argument
             {
                 if (throwOnError)
                 {
-                    throw new JavaScriptException(Engine.TypeError);
+                    ExceptionHelper.ThrowTypeError(Engine);
                 }
 
                 return;
@@ -147,7 +136,7 @@ namespace Jint.Native.Argument
 
             if (ownDesc.IsDataDescriptor())
             {
-                var valueDesc = new NullConfigurationPropertyDescriptor(value);
+                var valueDesc = new PropertyDescriptor(value, PropertyFlag.None);
                 DefineOwnProperty(propertyName, valueDesc, throwOnError);
                 return;
             }
@@ -162,16 +151,22 @@ namespace Jint.Native.Argument
             }
             else
             {
-                var newDesc = new ConfigurableEnumerableWritablePropertyDescriptor(value);
+                var newDesc = new PropertyDescriptor(value, PropertyFlag.ConfigurableEnumerableWritable);
                 DefineOwnProperty(propertyName, newDesc, throwOnError);
             }
         }
 
-        public override bool DefineOwnProperty(string propertyName, IPropertyDescriptor desc, bool throwOnError)
+        public override bool DefineOwnProperty(in Key propertyName, PropertyDescriptor desc, bool throwOnError)
         {
+            if (_func is ScriptFunctionInstance scriptFunctionInstance && scriptFunctionInstance._function._hasRestParameter)
+            {
+                // immutable
+                return false;
+            }
+
             EnsureInitialized();
 
-            if (!Strict && ParameterMap != null)
+            if (!_strict && !ReferenceEquals(ParameterMap, null))
             {
                 var map = ParameterMap;
                 var isMapped = map.GetOwnProperty(propertyName);
@@ -180,7 +175,7 @@ namespace Jint.Native.Argument
                 {
                     if (throwOnError)
                     {
-                        throw new JavaScriptException(Engine.TypeError);
+                        ExceptionHelper.ThrowTypeError(Engine);
                     }
                 }
 
@@ -192,12 +187,13 @@ namespace Jint.Native.Argument
                     }
                     else
                     {
-                        if (desc.Value != null && desc.Value != Undefined)
+                        var descValue = desc.Value;
+                        if (!ReferenceEquals(descValue, null) && !descValue.IsUndefined())
                         {
-                            map.Put(propertyName, desc.Value, throwOnError);
+                            map.Put(propertyName, descValue, throwOnError);
                         }
 
-                        if (desc.Writable.HasValue && desc.Writable.Value == false)
+                        if (desc.WritableSet && !desc.Writable)
                         {
                             map.Delete(propertyName, false);
                         }
@@ -210,11 +206,11 @@ namespace Jint.Native.Argument
             return base.DefineOwnProperty(propertyName, desc, throwOnError);
         }
 
-        public override bool Delete(string propertyName, bool throwOnError)
+        public override bool Delete(in Key propertyName, bool throwOnError)
         {
             EnsureInitialized();
 
-            if (!Strict && ParameterMap != null)
+            if (!_strict && !ReferenceEquals(ParameterMap, null))
             {
                 var map = ParameterMap;
                 var isMapped = map.GetOwnProperty(propertyName);
@@ -228,6 +224,19 @@ namespace Jint.Native.Argument
             }
 
             return base.Delete(propertyName, throwOnError);
+        }
+
+        internal void PersistArguments()
+        {
+            EnsureInitialized();
+
+            var args = _args;
+            var copiedArgs = new JsValue[args.Length];
+            System.Array.Copy(args, copiedArgs, args.Length);
+            _args = copiedArgs;
+
+            // should no longer expose arguments which is special name
+            ParameterMap = null;
         }
     }
 }

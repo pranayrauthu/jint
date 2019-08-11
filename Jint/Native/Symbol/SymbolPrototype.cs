@@ -1,6 +1,7 @@
-﻿using Jint.Native.Object;
+﻿using Jint.Collections;
+using Jint.Native.Object;
 using Jint.Runtime;
-using Jint.Runtime.Descriptors.Specialized;
+using Jint.Runtime.Descriptors;
 using Jint.Runtime.Interop;
 
 namespace Jint.Native.Symbol
@@ -10,6 +11,8 @@ namespace Jint.Native.Symbol
     /// </summary>
     public sealed class SymbolPrototype : ObjectInstance
     {
+        private SymbolConstructor _symbolConstructor;
+
         private SymbolPrototype(Engine engine)
             : base(engine)
         {
@@ -17,23 +20,28 @@ namespace Jint.Native.Symbol
 
         public static SymbolPrototype CreatePrototypeObject(Engine engine, SymbolConstructor symbolConstructor)
         {
-            var obj = new SymbolPrototype(engine);
-            obj.Prototype = engine.Object.PrototypeObject;
-            obj.Extensible = true;
-            obj.SetOwnProperty("length", new AllForbiddenPropertyDescriptor(0));
-            obj.FastAddProperty("constructor", symbolConstructor, true, false, true);
+            var obj = new SymbolPrototype(engine)
+            {
+                Prototype = engine.Object.PrototypeObject,
+                Extensible = true,
+                _symbolConstructor = symbolConstructor
+            };
 
             return obj;
         }
 
-        public void Configure()
+        protected override void Initialize()
         {
-            FastAddProperty("toString", new ClrFunctionInstance(Engine, ToSymbolString), true, false, true);
-            FastAddProperty("valueOf", new ClrFunctionInstance(Engine, ValueOf), true, false, true);
-            FastAddProperty("toStringTag", new JsString("Symbol"), false, false, true);
-
-            SetIntrinsicValue(GlobalSymbolRegistry.ToPrimitive, new ClrFunctionInstance(Engine, ToPrimitive), false, false, true);
-            SetIntrinsicValue(GlobalSymbolRegistry.ToStringTag, new JsString("Symbol"), false, false, true);
+            _properties = new StringDictionarySlim<PropertyDescriptor>(8)
+            {
+                ["length"] = PropertyDescriptor.AllForbiddenDescriptor.NumberZero,
+                ["constructor"] = new PropertyDescriptor(_symbolConstructor, true, false, true),
+                ["toString"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "toString", ToSymbolString), true, false, true),
+                ["valueOf"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "valueOf", ValueOf), true, false, true),
+                ["toStringTag"] = new PropertyDescriptor(new JsString("Symbol"), false, false, true),
+                [GlobalSymbolRegistry.ToPrimitive._value] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "toPrimitive", ToPrimitive), false, false, true),
+                [GlobalSymbolRegistry.ToStringTag._value] = new PropertyDescriptor(new JsString("Symbol"), false, false, true)
+            };
         }
 
         public string SymbolDescriptiveString(JsSymbol sym)
@@ -45,7 +53,7 @@ namespace Jint.Native.Symbol
         {
             if (!thisObject.IsSymbol())
             {
-                throw new JavaScriptException(Engine.TypeError);
+                ExceptionHelper.ThrowTypeError(Engine);
             }
 
             return SymbolDescriptiveString((JsSymbol)thisObject);
@@ -54,9 +62,9 @@ namespace Jint.Native.Symbol
         private JsValue ValueOf(JsValue thisObject, JsValue[] arguments)
         {
             var sym = thisObject.TryCast<SymbolInstance>();
-            if (sym == null)
+            if (ReferenceEquals(sym, null))
             {
-                throw new JavaScriptException(Engine.TypeError);
+                ExceptionHelper.ThrowTypeError(Engine);
             }
 
             return sym.SymbolData;
@@ -71,9 +79,9 @@ namespace Jint.Native.Symbol
 
             // Steps 3. and 4.
             var o = thisObject.AsInstance<SymbolInstance>();
-            if (o == null)
+            if (ReferenceEquals(o, null))
             {
-                throw new JavaScriptException(Engine.TypeError);
+                ExceptionHelper.ThrowTypeError(Engine);
             }
 
             return o.SymbolData;

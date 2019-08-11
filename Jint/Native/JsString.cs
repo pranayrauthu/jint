@@ -1,6 +1,6 @@
 ﻿using System;
-using System.Diagnostics.Contracts;
 using System.Text;
+using Jint.Native.Array;
 using Jint.Runtime;
 
 namespace Jint.Native
@@ -11,10 +11,16 @@ namespace Jint.Native
         private static readonly JsString[] _charToJsValue;
         private static readonly JsString[] _charToStringJsValue;
 
-        private static readonly JsString Empty = new JsString("");
+        public static readonly JsString Empty = new JsString("");
         private static readonly JsString NullString = new JsString("null");
+        internal static readonly JsString UndefinedString = new JsString("undefined");
+        internal static readonly JsString ObjectString = new JsString("object");
+        internal static readonly JsString FunctionString = new JsString("function");
+        internal static readonly JsString BooleanString = new JsString("boolean");
+        internal static readonly JsString StringString = new JsString("string");
+        internal static readonly JsString NumberString = new JsString("number");
 
-        private string _value;
+        internal string _value;
 
         static JsString()
         {
@@ -28,7 +34,7 @@ namespace Jint.Native
             }
         }
 
-        public JsString(string value)
+        public JsString(string value) : base(Types.String)
         {
             _value = value;
         }
@@ -38,22 +44,9 @@ namespace Jint.Native
             return _value;
         }
 
-        public JsString(char value)
+        public JsString(char value) : base(Types.String)
         {
             _value = value.ToString();
-        }
-
-        public override Types Type => Types.String;
-
-        [Pure]
-        public override string AsString()
-        {
-            if (_value == null)
-            {
-                throw new ArgumentException("The value is not defined");
-            }
-
-            return _value;
         }
 
         public virtual JsString Append(JsValue jsValue)
@@ -66,24 +59,28 @@ namespace Jint.Native
             return new ConcatenatedString(_value, capacity);
         }
 
+        internal virtual bool IsNullOrEmpty()
+        {
+            return string.IsNullOrEmpty(_value);
+        }
+
+        public virtual int Length => _value.Length;
+
         internal static JsString Create(string value)
         {
-            if (value.Length <= 1)
+            if (value.Length == 0)
             {
-                if (value == "")
+                return Empty;
+            }
+            if (value.Length == 1)
+            {
+                var i = (uint) value[0];
+                if (i < (uint) _charToStringJsValue.Length)
                 {
-                    return Empty;
-                }
-
-                if (value.Length == 1)
-                {
-                    if (value[0] >= 0 && value[0] <= AsciiMax)
-                    {
-                        return _charToStringJsValue[value[0]];
-                    }
+                    return _charToStringJsValue[i];
                 }
             }
-            else if (value == Native.Null.Text)
+            else if (value.Length == 4 && value == Native.Null.Text)
             {
                 return NullString;
             }
@@ -93,7 +90,7 @@ namespace Jint.Native
 
         internal static JsString Create(char value)
         {
-            if (value >= 0 && value <= AsciiMax)
+            if (value < (uint) _charToJsValue.Length)
             {
                 return _charToJsValue[value];
             }
@@ -104,6 +101,17 @@ namespace Jint.Native
         public override string ToString()
         {
             return _value;
+        }
+
+        public ArrayInstance ToArray(Engine engine)
+        {
+            var array = engine.Array.ConstructFast((uint) _value.Length);
+            for (int i = 0; i < _value.Length; ++i)
+            {
+                array.SetIndexValue((uint) i, _value[i], updateLength: false);
+            }
+
+            return array;
         }
 
         public override bool Equals(JsValue obj)
@@ -133,7 +141,7 @@ namespace Jint.Native
                 return true;
             }
 
-            return _value == other._value;
+            return _value == other.ToString();
         }
 
         internal sealed class ConcatenatedString : JsString
@@ -153,8 +161,7 @@ namespace Jint.Native
                 }
             }
 
-            [Pure]
-            public override string AsString()
+            public override string ToString()
             {
                 if (_dirty)
                 {
@@ -185,22 +192,36 @@ namespace Jint.Native
                 return this;
             }
 
+            internal override bool IsNullOrEmpty()
+            {
+                return _stringBuilder == null && string.IsNullOrEmpty(_value)
+                    || _stringBuilder != null && _stringBuilder.Length == 0;
+            }
+
+            public override int Length => _stringBuilder?.Length ?? _value?.Length ?? 0;
+
+            public override object ToObject() => ToString();
+
             public override bool Equals(JsValue other)
             {
                 if (other is ConcatenatedString cs)
                 {
-                    return _stringBuilder.Equals(cs._stringBuilder);
+                    if (_stringBuilder != null && cs._stringBuilder != null)
+                    {
+                        return _stringBuilder.Equals(cs._stringBuilder);
+                    }
+
+                    return ToString() == cs.ToString();
                 }
 
-                if (other.Type == Types.String)
+                if (other is JsString jsString)
                 {
-                    var otherString = other.AsString();
-                    if (otherString.Length != _stringBuilder.Length)
+                    if (jsString._value.Length != Length)
                     {
                         return false;
                     }
 
-                    return AsString().Equals(otherString);
+                    return ToString() == jsString._value;
                 }
 
                 return base.Equals(other);

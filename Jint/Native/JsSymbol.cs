@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Runtime.CompilerServices;
 using Jint.Runtime;
 
 namespace Jint.Native
@@ -8,63 +9,41 @@ namespace Jint.Native
     /// </summary>
     public sealed class JsSymbol : JsValue, IEquatable<JsSymbol>
     {
-        private readonly string _value;
+        internal readonly string _value;
 
-        public JsSymbol(string value)
+        public JsSymbol(string value) : base(Types.Symbol)
         {
             _value = value;
         }
 
-        public override Types Type => Types.Symbol;
+        internal JsSymbol(JsValue value) : base(Types.Symbol)
+        {
+            _value = value.IsUndefined() ? "" : value.ToString();
+        }
 
         public override object ToObject()
         {
             return _value;
         }
 
-        public override string AsSymbol()
+        public override string ToString()
         {
-            if (_value == null)
-            {
-                throw new ArgumentException("The value is not defined");
-            }
-
-            return _value;
+            return "Symbol(" + _value + ")";
         }
 
         public override bool Equals(JsValue obj)
         {
-            if (ReferenceEquals(null, obj))
-            {
-                return false;
-            }
-
-            if (!(obj is JsBoolean number))
-            {
-                return false;
-            }
-
-            return Equals(number);
+            return ReferenceEquals(this, obj);
         }
 
         public bool Equals(JsSymbol other)
         {
-            if (ReferenceEquals(null, other))
-            {
-                return false;
-            }
-
-            if (ReferenceEquals(this, other))
-            {
-                return true;
-            }
-
-            return _value == other._value;
+            return ReferenceEquals(this, other);
         }
 
         public override int GetHashCode()
         {
-            return _value.GetHashCode();
+            return RuntimeHelpers.GetHashCode(this);
         }
     }
 }

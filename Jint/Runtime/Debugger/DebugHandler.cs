@@ -40,17 +40,17 @@ namespace Jint.Runtime.Debugger
 
         internal void AddToDebugCallStack(CallExpression callExpression)
         {
-            var identifier = callExpression.Callee as Identifier;
+            var identifier = callExpression.Callee as Esprima.Ast.Identifier;
             if (identifier != null)
             {
                 var stack = identifier.Name + "(";
-                var paramStrings = new List<string>();
+                var paramStrings = new System.Collections.Generic.List<string>();
 
                 foreach (var argument in callExpression.Arguments)
                 {
                     if (argument != null)
                     {
-                        var argIdentifier = argument as Identifier;
+                        var argIdentifier = argument as Esprima.Ast.Identifier;
                         paramStrings.Add(argIdentifier != null ? argIdentifier.Name : "null");
                     }
                     else
@@ -138,7 +138,8 @@ namespace Jint.Runtime.Debugger
 
             if (!string.IsNullOrEmpty(breakpoint.Condition))
             {
-                return _engine.Execute(breakpoint.Condition).GetCompletionValue().AsBoolean();
+                var completionValue = _engine.Execute(breakpoint.Condition).GetCompletionValue();
+                return ((JsBoolean) completionValue)._value;
             }
 
             return true;
@@ -148,7 +149,7 @@ namespace Jint.Runtime.Debugger
         {
             var info = new DebugInformation { CurrentStatement = statement, CallStack = _debugCallStack };
 
-            if (_engine.ExecutionContext != null && _engine.ExecutionContext.LexicalEnvironment != null)
+            if (_engine.ExecutionContext.LexicalEnvironment != null)
             {
                 var lexicalEnvironment = _engine.ExecutionContext.LexicalEnvironment;
                 info.Locals = GetLocalVariables(lexicalEnvironment);
@@ -161,7 +162,7 @@ namespace Jint.Runtime.Debugger
         private static Dictionary<string, JsValue> GetLocalVariables(LexicalEnvironment lex)
         {
             Dictionary<string, JsValue> locals = new Dictionary<string, JsValue>();
-            if (lex != null && lex.Record != null)
+            if (!ReferenceEquals(lex?._record, null))
             {
                 AddRecordsFromEnvironment(lex, locals);
             }
@@ -173,22 +174,22 @@ namespace Jint.Runtime.Debugger
             Dictionary<string, JsValue> globals = new Dictionary<string, JsValue>();
             LexicalEnvironment tempLex = lex;
 
-            while (tempLex != null && tempLex.Record != null)
+            while (!ReferenceEquals(tempLex?._record, null))
             {
                 AddRecordsFromEnvironment(tempLex, globals);
-                tempLex = tempLex.Outer;
+                tempLex = tempLex._outer;
             }
             return globals;
         }
 
         private static void AddRecordsFromEnvironment(LexicalEnvironment lex, Dictionary<string, JsValue> locals)
         {
-            var bindings = lex.Record.GetAllBindingNames();
+            var bindings = lex._record.GetAllBindingNames();
             foreach (var binding in bindings)
             {
                 if (locals.ContainsKey(binding) == false)
                 {
-                    var jsValue = lex.Record.GetBindingValue(binding, false);
+                    var jsValue = lex._record.GetBindingValue(binding, false);
                     if (jsValue.TryCast<ICallable>() == null)
                     {
                         locals.Add(binding, jsValue);

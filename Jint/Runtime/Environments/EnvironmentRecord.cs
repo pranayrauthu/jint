@@ -1,5 +1,4 @@
 ﻿using Jint.Native;
-using Jint.Native.Object;
 
 namespace Jint.Runtime.Environments
 {
@@ -7,18 +6,27 @@ namespace Jint.Runtime.Environments
     /// Base implementation of an Environment Record
     /// http://www.ecma-international.org/ecma-262/5.1/#sec-10.2.1
     /// </summary>
-    public abstract class EnvironmentRecord : ObjectInstance
+    public abstract class EnvironmentRecord : JsValue
     {
-        protected EnvironmentRecord(Engine engine) : base(engine)
+        protected readonly Engine _engine;
+
+        protected EnvironmentRecord(Engine engine) : base(Types.Object)
         {
+            _engine = engine;
         }
 
         /// <summary>
-        /// Determines if an environment record has a binding for an identifier. 
+        /// Determines if an environment record has a binding for an identifier.
         /// </summary>
         /// <param name="name">The identifier of the binding</param>
         /// <returns><c>true</c> if it does and <c>false</c> if it does not.</returns>
-        public abstract bool HasBinding(string name);
+        public abstract bool HasBinding(in Key name);
+
+        internal abstract bool TryGetBinding(
+            in Key name,
+            bool strict,
+            out Binding binding,
+            out JsValue value);
 
         /// <summary>
         /// Creates a new mutable binding in an environment record.
@@ -26,30 +34,30 @@ namespace Jint.Runtime.Environments
         /// <param name="name">The identifier of the binding.</param>
         /// <param name="value">The value of the binding.</param>
         /// <param name="canBeDeleted"><c>true</c> if the binding may be subsequently deleted.</param>
-        public abstract void CreateMutableBinding(string name, JsValue value, bool canBeDeleted = false);
+        public abstract void CreateMutableBinding(in Key name, JsValue value, bool canBeDeleted = false);
 
         /// <summary>
-        /// Sets the value of an already existing mutable binding in an environment record. 
+        /// Sets the value of an already existing mutable binding in an environment record.
         /// </summary>
         /// <param name="name">The identifier of the binding</param>
         /// <param name="value">The value of the binding.</param>
         /// <param name="strict">The identify strict mode references.</param>
-        public abstract void SetMutableBinding(string name, JsValue value, bool strict);
-        
+        public abstract void SetMutableBinding(in Key name, JsValue value, bool strict);
+
         /// <summary>
-        /// Returns the value of an already existing binding from an environment record. 
+        /// Returns the value of an already existing binding from an environment record.
         /// </summary>
         /// <param name="name">The identifier of the binding</param>
         /// <param name="strict">The identify strict mode references.</param>
         /// <return>The value of an already existing binding from an environment record.</return>
-        public abstract JsValue GetBindingValue(string name, bool strict);
+        public abstract JsValue GetBindingValue(in Key name, bool strict);
 
         /// <summary>
         /// Delete a binding from an environment record. The String value N is the text of the bound name If a binding for N exists, remove the binding and return true. If the binding exists but cannot be removed return false. If the binding does not exist return true.
         /// </summary>
         /// <param name="name">The identifier of the binding</param>
         /// <returns><true>true</true> if the deletion is successfull.</returns>
-        public abstract bool DeleteBinding(string name);
+        public abstract bool DeleteBinding(in Key name);
 
         /// <summary>
         /// Returns the value to use as the <c>this</c> value on calls to function objects that are obtained as binding values from this environment record.
@@ -62,5 +70,24 @@ namespace Jint.Runtime.Environments
         /// </summary>
         /// <returns>The array of all defined bindings</returns>
         public abstract string[] GetAllBindingNames();
+        
+        public override object ToObject()
+        {
+            ExceptionHelper.ThrowNotSupportedException();
+            return null;
+        }
+
+        public override bool Equals(JsValue other)
+        {
+            ExceptionHelper.ThrowNotSupportedException();
+            return false;
+        }
+
+        /// <summary>
+        /// Informs whether arguments instance was accessed and maybe thus stored,
+        /// which makes it unsuitable for pooling and reuse.
+        /// </summary>
+        internal abstract void FunctionWasCalled();
     }
 }
+

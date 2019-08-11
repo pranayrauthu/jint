@@ -1,22 +1,21 @@
 ﻿using Esprima;
-using Jint.Native.Argument;
 using Jint.Runtime;
-using Jint.Runtime.Descriptors.Specialized;
+using Jint.Runtime.Descriptors;
 using Jint.Runtime.Environments;
+using Jint.Runtime.Interpreter.Statements;
 
 namespace Jint.Native.Function
 {
-    public class EvalFunctionInstance: FunctionInstance
+    public sealed class EvalFunctionInstance : FunctionInstance
     {
         private static readonly ParserOptions ParserOptions = new ParserOptions { AdaptRegexp = true, Tolerant = false };
+        private static readonly JsString _functionName = new JsString("eval");
 
-        private readonly Engine _engine;
-
-        public EvalFunctionInstance(Engine engine, string[] parameters, LexicalEnvironment scope, bool strict) : base(engine, parameters, scope, strict)
+        public EvalFunctionInstance(Engine engine, string[] parameters, LexicalEnvironment scope, bool strict) 
+            : base(engine, _functionName, parameters, scope, strict)
         {
-            _engine = engine;
             Prototype = Engine.Function.PrototypeObject;
-            SetOwnProperty("length", new AllForbiddenPropertyDescriptor(1));
+            _length = PropertyDescriptor.AllForbiddenDescriptor.NumberOne;
         }
 
         public override JsValue Call(JsValue thisObject, JsValue[] arguments)
@@ -26,12 +25,13 @@ namespace Jint.Native.Function
 
         public JsValue Call(JsValue thisObject, JsValue[] arguments, bool directCall)
         {
-            if (arguments.At(0).Type != Types.String)
+            var arg = arguments.At(0);
+            if (arg.Type != Types.String)
             {
-                return arguments.At(0);
+                return arg;
             }
 
-            var code = TypeConverter.ToString(arguments.At(0));
+            var code = TypeConverter.ToString(arg);
 
             try
             {
@@ -50,39 +50,36 @@ namespace Jint.Native.Function
                                 Engine.EnterExecutionContext(Engine.GlobalEnvironment, Engine.GlobalEnvironment, Engine.Global);
                             }
 
+                            var lexicalEnvironment = _engine.ExecutionContext.LexicalEnvironment;
                             if (StrictModeScope.IsStrictModeCode)
                             {
-                                strictVarEnv = LexicalEnvironment.NewDeclarativeEnvironment(Engine, Engine.ExecutionContext.LexicalEnvironment);
+                                strictVarEnv = LexicalEnvironment.NewDeclarativeEnvironment(Engine, lexicalEnvironment);
                                 Engine.EnterExecutionContext(strictVarEnv, strictVarEnv, Engine.ExecutionContext.ThisBinding);
                             }
 
                             bool argumentInstanceRented = Engine.DeclarationBindingInstantiation(
                                 DeclarationBindingType.EvalCode,
-                                program.HoistingScope.FunctionDeclarations,
-                                program.HoistingScope.VariableDeclarations,
-                                this, 
+                                program.HoistingScope,
+                                functionInstance: this,
                                 arguments);
 
-                            var result = _engine.ExecuteStatement(program);
+                            var statement = JintStatement.Build(_engine, program);
+                            var result = statement.Execute();
                             var value = result.GetValueOrDefault();
 
-                            // we can safely release arguments if they don't escape the scope
-                            if (argumentInstanceRented
-                                && Engine.ExecutionContext.LexicalEnvironment?.Record is DeclarativeEnvironmentRecord der
-                                && !(result.Value is ArgumentsInstance))
+                            if (argumentInstanceRented)
                             {
-                                der.ReleaseArguments();
+                                lexicalEnvironment?._record?.FunctionWasCalled();
+                                _engine.ExecutionContext.VariableEnvironment?._record?.FunctionWasCalled();
                             }
 
-                            if (result.Type == Completion.Throw)
+                            if (result.Type == CompletionType.Throw)
                             {
                                 var ex = new JavaScriptException(value).SetCallstack(_engine, result.Location);
-                                _engine.CompletionPool.Return(result);
                                 throw ex;
                             }
                             else
                             {
-                                _engine.CompletionPool.Return(result);
                                 return value;
                             }
                         }
@@ -105,10 +102,11 @@ namespace Jint.Native.Function
             {
                 if (e.Description == Messages.InvalidLHSInAssignment)
                 {
-                    throw new JavaScriptException(Engine.ReferenceError);
+                    ExceptionHelper.ThrowReferenceError(_engine, (string) null);
                 }
 
-                throw new JavaScriptException(Engine.SyntaxError);
+                ExceptionHelper.ThrowSyntaxError(_engine);
+                return null;
             }
         }
     }

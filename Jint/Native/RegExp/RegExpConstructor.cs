@@ -4,36 +4,36 @@ using Esprima;
 using Jint.Native.Function;
 using Jint.Native.Object;
 using Jint.Runtime;
-using Jint.Runtime.Descriptors.Specialized;
+using Jint.Runtime.Descriptors;
 
 namespace Jint.Native.RegExp
 {
     public sealed class RegExpConstructor : FunctionInstance, IConstructor
     {
+        private static readonly JsString _functionName = new JsString("RegExp");
+
         public RegExpConstructor(Engine engine)
-            : base(engine, null, null, false)
+            : base(engine, _functionName, strict: false)
         {
         }
 
         public static RegExpConstructor CreateRegExpConstructor(Engine engine)
         {
-            var obj = new RegExpConstructor(engine);
-            obj.Extensible = true;
+            var obj = new RegExpConstructor(engine)
+            {
+                Extensible = true,
+                Prototype = engine.Function.PrototypeObject
+            };
 
             // The value of the [[Prototype]] internal property of the RegExp constructor is the Function prototype object
-            obj.Prototype = engine.Function.PrototypeObject;
             obj.PrototypeObject = RegExpPrototype.CreatePrototypeObject(engine, obj);
 
-            obj.SetOwnProperty("length", new AllForbiddenPropertyDescriptor(2));
+            obj._length = new PropertyDescriptor(2, PropertyFlag.AllForbidden);
 
             // The initial value of RegExp.prototype is the RegExp prototype object
-            obj.SetOwnProperty("prototype", new AllForbiddenPropertyDescriptor(obj.PrototypeObject));
+            obj._prototype= new PropertyDescriptor(obj.PrototypeObject, PropertyFlag.AllForbidden);
 
             return obj;
-        }
-
-        public void Configure()
-        {
         }
 
         public override JsValue Call(JsValue thisObject, JsValue[] arguments)
@@ -41,8 +41,8 @@ namespace Jint.Native.RegExp
             var pattern = arguments.At(0);
             var flags = arguments.At(1);
 
-            if (!ReferenceEquals(pattern, Undefined)
-                && ReferenceEquals(flags, Undefined)
+            if (!pattern.IsUndefined()
+                && flags.IsUndefined()
                 && TypeConverter.ToObject(Engine, pattern).Class == "Regex")
             {
                 return pattern;
@@ -66,27 +66,26 @@ namespace Jint.Native.RegExp
             var flags = arguments.At(1);
 
             var r = pattern.TryCast<RegExpInstance>();
-            if (ReferenceEquals(flags, Undefined) && r != null)
+            if (flags.IsUndefined() && !ReferenceEquals(r, null))
             {
                 return r;
             }
-            else if (flags != Undefined && r != null)
+
+            if (!flags.IsUndefined() && !ReferenceEquals(r, null))
             {
-                throw new JavaScriptException(Engine.TypeError);
+                ExceptionHelper.ThrowTypeError(Engine);
+            }
+
+            if (pattern.IsUndefined())
+            {
+                p = "";
             }
             else
             {
-                if (ReferenceEquals(pattern, Undefined))
-                {
-                    p = "";
-                }
-                else
-                {
-                    p = TypeConverter.ToString(pattern);
-                }
-
-                f = !ReferenceEquals(flags, Undefined) ? TypeConverter.ToString(flags) : "";
+                p = TypeConverter.ToString(pattern);
             }
+
+            f = !flags.IsUndefined() ? TypeConverter.ToString(flags) : "";
 
             r = new RegExpInstance(Engine);
             r.Prototype = PrototypeObject;
@@ -95,17 +94,23 @@ namespace Jint.Native.RegExp
             try
             {
                 var options = new Scanner("").ParseRegexOptions(f);
-                r.Value = new Regex(p, options);
+
+                var timeout = _engine.Options._RegexTimeoutInterval;
+                if (timeout.Ticks <= 0)
+                {
+                    timeout = Regex.InfiniteMatchTimeout;
+                }
+
+                r.Value = new Regex(p, options, timeout);
             }
             catch (Exception e)
             {
-                throw new JavaScriptException(Engine.SyntaxError, e.Message);
+                ExceptionHelper.ThrowSyntaxError(_engine, e.Message);
             }
 
-            string s;
-            s = p;
+            var s = p;
 
-            if (System.String.IsNullOrEmpty(s))
+            if (string.IsNullOrEmpty(s))
             {
                 s = "(?:)";
             }
@@ -119,7 +124,7 @@ namespace Jint.Native.RegExp
             return r;
         }
 
-        public RegExpInstance Construct(string regExp)
+        public RegExpInstance Construct(string regExp, Engine engine)
         {
             var r = new RegExpInstance(Engine);
             r.Prototype = PrototypeObject;
@@ -130,6 +135,12 @@ namespace Jint.Native.RegExp
             var flags = (string)scanner.ScanRegExpFlags().Value;
             r.Value = scanner.TestRegExp(body, flags);
 
+            var timeout = engine.Options._RegexTimeoutInterval;
+            if (timeout.Ticks > 0)
+            {
+                r.Value = new Regex(r.Value.ToString(), r.Value.Options);
+            }
+
             r.Flags = flags;
             AssignFlags(r, flags);
             r.Source = System.String.IsNullOrEmpty(body) ? "(?:)" : body;
@@ -139,7 +150,7 @@ namespace Jint.Native.RegExp
             return r;
         }
 
-        public RegExpInstance Construct(Regex regExp, string flags)
+        public RegExpInstance Construct(Regex regExp, string flags, Engine engine)
         {
             var r = new RegExpInstance(Engine);
             r.Prototype = PrototypeObject;
@@ -149,7 +160,16 @@ namespace Jint.Native.RegExp
             AssignFlags(r, flags);
 
             r.Source = regExp.ToString();
-            r.Value = regExp;
+
+            var timeout = _engine.Options._RegexTimeoutInterval;
+            if (timeout.Ticks > 0)
+            {
+                r.Value = new Regex(regExp.ToString(), regExp.Options, timeout);
+            }
+            else
+            {
+                r.Value = regExp;
+            }
 
             SetRegexProperties(r);
 
@@ -158,14 +178,15 @@ namespace Jint.Native.RegExp
 
         private static void SetRegexProperties(RegExpInstance r)
         {
-            r.SetOwnProperty("global", new AllForbiddenPropertyDescriptor(r.Global));
-            r.SetOwnProperty("ignoreCase", new AllForbiddenPropertyDescriptor(r.IgnoreCase));
-            r.SetOwnProperty("multiline", new AllForbiddenPropertyDescriptor(r.Multiline));
-            r.SetOwnProperty("source", new AllForbiddenPropertyDescriptor(r.Source));
-            r.SetOwnProperty("lastIndex", new WritablePropertyDescriptor(0));
+            r.SetOwnProperty("global", new PropertyDescriptor(r.Global, PropertyFlag.AllForbidden));
+            r.SetOwnProperty("ignoreCase", new PropertyDescriptor(r.IgnoreCase, PropertyFlag.AllForbidden));
+            r.SetOwnProperty("multiline", new PropertyDescriptor(r.Multiline, PropertyFlag.AllForbidden));
+            r.SetOwnProperty("source", new PropertyDescriptor(r.Source, PropertyFlag.AllForbidden));
+            r.SetOwnProperty("flags", new PropertyDescriptor(r.Flags, PropertyFlag.AllForbidden));
+            r.SetOwnProperty("lastIndex", new PropertyDescriptor(0, PropertyFlag.OnlyWritable));
         }
 
-        private void AssignFlags(RegExpInstance r, string flags)
+        private static void AssignFlags(RegExpInstance r, string flags)
         {
             for(var i=0; i < flags.Length; i++)
             {

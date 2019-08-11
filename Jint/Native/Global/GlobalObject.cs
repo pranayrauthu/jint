@@ -1,10 +1,14 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using Jint.Collections;
 using Jint.Native.Object;
 using Jint.Native.String;
 using Jint.Runtime;
+using Jint.Runtime.Descriptors;
+using Jint.Runtime.Descriptors.Specialized;
 using Jint.Runtime.Interop;
 
 namespace Jint.Native.Global
@@ -19,58 +23,58 @@ namespace Jint.Native.Global
 
         public static GlobalObject CreateGlobalObject(Engine engine)
         {
-            var global = new GlobalObject(engine) { Prototype = null, Extensible = true };
+            var global = new GlobalObject(engine)
+            {
+                Prototype = null,
+                Extensible = true,
+                _properties = new StringDictionarySlim<PropertyDescriptor>(35)
+            };
 
             return global;
         }
 
-        public void Configure()
+        protected override void Initialize()
         {
-            // this is implementation dependent, and only to pass some unit tests
-            Prototype = Engine.Object.PrototypeObject;
-
             // Global object properties
-            FastAddProperty("Object", Engine.Object, true, false, true);
-            FastAddProperty("Function", Engine.Function, true, false, true);
-            FastAddProperty("Symbol", Engine.Symbol, true, false, true);
-            FastAddProperty("Array", Engine.Array, true, false, true);
-            FastAddProperty("String", Engine.String, true, false, true);
-            FastAddProperty("RegExp", Engine.RegExp, true, false, true);
-            FastAddProperty("Number", Engine.Number, true, false, true);
-            FastAddProperty("Boolean", Engine.Boolean, true, false, true);
-            FastAddProperty("Date", Engine.Date, true, false, true);
-            FastAddProperty("Math", Engine.Math, true, false, true);
-            FastAddProperty("JSON", Engine.Json, true, false, true);
-
-            FastAddProperty("Error", Engine.Error, true, false, true);
-            FastAddProperty("EvalError", Engine.EvalError, true, false, true);
-            FastAddProperty("RangeError", Engine.RangeError, true, false, true);
-            FastAddProperty("ReferenceError", Engine.ReferenceError, true, false, true);
-            FastAddProperty("SyntaxError", Engine.SyntaxError, true, false, true);
-            FastAddProperty("TypeError", Engine.TypeError, true, false, true);
-            FastAddProperty("URIError", Engine.UriError, true, false, true);
-
-            FastAddProperty("NaN", double.NaN, false, false, false);
-            FastAddProperty("Infinity", double.PositiveInfinity, false, false, false);
-            FastAddProperty("undefined", Undefined, false, false, false);
-
-            // Global object functions
-            FastAddProperty("parseInt", new ClrFunctionInstance(Engine, ParseInt, 2), true, false, true);
-            FastAddProperty("parseFloat", new ClrFunctionInstance(Engine, ParseFloat, 1), true, false, true);
-            FastAddProperty("isNaN", new ClrFunctionInstance(Engine, IsNaN, 1), true, false, true);
-            FastAddProperty("isFinite", new ClrFunctionInstance(Engine, IsFinite, 1), true, false, true);
-            FastAddProperty("decodeURI", new ClrFunctionInstance(Engine, DecodeUri, 1), true, false, true);
-            FastAddProperty("decodeURIComponent", new ClrFunctionInstance(Engine, DecodeUriComponent, 1), true, false, true);
-            FastAddProperty("encodeURI", new ClrFunctionInstance(Engine, EncodeUri, 1), true, false, true);
-            FastAddProperty("encodeURIComponent", new ClrFunctionInstance(Engine, EncodeUriComponent, 1), true, false, true);
-            FastAddProperty("escape", new ClrFunctionInstance(Engine, Escape, 1), true, false, true);
-            FastAddProperty("unescape", new ClrFunctionInstance(Engine, Unescape, 1), true, false, true);
+            _properties["Object"] = new PropertyDescriptor(Engine.Object, true, false, true);
+            _properties["Function"] = new PropertyDescriptor(Engine.Function, true, false, true);
+            _properties["Symbol"] = new PropertyDescriptor(Engine.Symbol, true, false, true);
+            _properties["Array"] = new PropertyDescriptor(Engine.Array, true, false, true);
+            _properties["Map"] = new PropertyDescriptor(Engine.Map, true, false, true);
+            _properties["Set"] = new PropertyDescriptor(Engine.Set, true, false, true);
+            _properties["String"] = new PropertyDescriptor(Engine.String, true, false, true);
+            _properties["RegExp"] = new PropertyDescriptor(Engine.RegExp, true, false, true);
+            _properties["Number"] = new PropertyDescriptor(Engine.Number, true, false, true);
+            _properties["Boolean"] = new PropertyDescriptor(Engine.Boolean, true, false, true);
+            _properties["Date"] = new PropertyDescriptor(Engine.Date, true, false, true);
+            _properties["Math"] = new PropertyDescriptor(Engine.Math, true, false, true);
+            _properties["JSON"] = new PropertyDescriptor(Engine.Json, true, false, true);
+            _properties["Error"] = new LazyPropertyDescriptor(() => Engine.Error, true, false, true);
+            _properties["EvalError"] = new LazyPropertyDescriptor(() => Engine.EvalError, true, false, true);
+            _properties["RangeError"] = new LazyPropertyDescriptor(() => Engine.RangeError, true, false, true);
+            _properties["ReferenceError"] = new LazyPropertyDescriptor(() => Engine.ReferenceError, true, false, true);
+            _properties["SyntaxError"] = new LazyPropertyDescriptor(() => Engine.SyntaxError, true, false, true);
+            _properties["TypeError"] = new LazyPropertyDescriptor(() => Engine.TypeError, true, false, true);
+            _properties["URIError"] = new LazyPropertyDescriptor(() => Engine.UriError, true, false, true);
+            _properties["NaN"] = new PropertyDescriptor(double.NaN, false, false, false);
+            _properties["Infinity"] = new PropertyDescriptor(double.PositiveInfinity, false, false, false);
+            _properties["undefined"] = new PropertyDescriptor(Undefined, false, false, false);
+            _properties["parseInt"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "parseInt", ParseInt, 2, PropertyFlag.Configurable), true, false, true);
+            _properties["parseFloat"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "parseFloat", ParseFloat, 1, PropertyFlag.Configurable), true, false, true);
+            _properties["isNaN"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "isNaN", IsNaN, 1), true, false, true);
+            _properties["isFinite"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "isFinite", IsFinite, 1), true, false, true);
+            _properties["decodeURI"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "decodeURI", DecodeUri, 1, PropertyFlag.Configurable), true, false, true);
+            _properties["decodeURIComponent"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "decodeURIComponent", DecodeUriComponent, 1, PropertyFlag.Configurable), true, false, true);
+            _properties["encodeURI"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "encodeURI", EncodeUri, 1, PropertyFlag.Configurable), true, false, true);
+            _properties["encodeURIComponent"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "encodeURIComponent", EncodeUriComponent, 1, PropertyFlag.Configurable), true, false, true);
+            _properties["escape"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "escape", Escape, 1), true, false, true);
+            _properties["unescape"] = new PropertyDescriptor(new ClrFunctionInstance(Engine, "unescape", Unescape, 1), true, false, true);
         }
 
         /// <summary>
         /// http://www.ecma-international.org/ecma-262/5.1/#sec-15.1.2.2
         /// </summary>
-        public static JsValue ParseInt(JsValue thisObject, JsValue[] arguments)
+        public JsValue ParseInt(JsValue thisObject, JsValue[] arguments)
         {
             string inputString = TypeConverter.ToString(arguments.At(0));
             var s = StringPrototype.TrimEx(inputString);
@@ -106,7 +110,7 @@ namespace Jint.Native.Global
             }
             else if (radix < 2 || radix > 36)
             {
-                return double.NaN;
+                return JsNumber.DoubleNaN;
             }
             else if (radix != 16)
             {
@@ -120,16 +124,16 @@ namespace Jint.Native.Global
 
             try
             {
-                return sign * Parse(s, radix).AsNumber();
+                return sign * Parse(s, radix);
             }
             catch
             {
-                return double.NaN;
+                return JsNumber.DoubleNaN;
             }
 
         }
 
-        private static JsValue Parse(string number, int radix)
+        private static double Parse(string number, int radix)
         {
             if (number == "")
             {
@@ -171,7 +175,7 @@ namespace Jint.Native.Global
         /// <summary>
         /// http://www.ecma-international.org/ecma-262/5.1/#sec-15.1.2.3
         /// </summary>
-        public static JsValue ParseFloat(JsValue thisObject, JsValue[] arguments)
+        public JsValue ParseFloat(JsValue thisObject, JsValue[] arguments)
         {
             var inputString = TypeConverter.ToString(arguments.At(0));
             var trimmedString = StringPrototype.TrimStartEx(inputString);
@@ -197,7 +201,7 @@ namespace Jint.Native.Global
 
             if (trimmedString.StartsWith("NaN"))
             {
-                return double.NaN;
+                return JsNumber.DoubleNaN;
             }
 
             var separator = (char)0;
@@ -301,7 +305,7 @@ namespace Jint.Native.Global
 
             if (isNan)
             {
-                return double.NaN;
+                return JsNumber.DoubleNaN;
             }
 
             for (var k = 1; k <= exp; k++)
@@ -347,9 +351,12 @@ namespace Jint.Native.Global
             return true;
         }
 
-        private static readonly char[] UriReserved = { ';', '/', '?', ':', '@', '&', '=', '+', '$', ',' };
+        private static readonly HashSet<char> UriReserved = new HashSet<char>
+        {
+            ';', '/', '?', ':', '@', '&', '=', '+', '$', ','
+        };
 
-        private static readonly char[] UriUnescaped =
+        private static readonly HashSet<char> UriUnescaped = new HashSet<char>
         {
             'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v',
             'w', 'x', 'y', 'z', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R',
@@ -357,8 +364,8 @@ namespace Jint.Native.Global
             '~', '*', '\'', '(', ')'
         };
 
-        private static readonly char[] UnescapedUriSet = UriReserved.Concat(UriUnescaped).Concat(new[] { '#' }).ToArray();
-        private static readonly char[] ReservedUriSet = UriReserved.Concat(new[] { '#' }).ToArray();
+        private static readonly HashSet<char> UnescapedUriSet = new HashSet<char>(UriReserved.Concat(UriUnescaped).Concat(new[] { '#' }));
+        private static readonly HashSet<char> ReservedUriSet = new HashSet<char>(UriReserved.Concat(new[] { '#' }));
 
         private const string HexaMap = "0123456789ABCDEF";
 
@@ -396,7 +403,7 @@ namespace Jint.Native.Global
             return Encode(uriString, UriUnescaped);
         }
 
-        private string Encode(string uriString, char[] unescapedUriSet)
+        private string Encode(string uriString, HashSet<char> unescapedUriSet)
         {
             var strLen = uriString.Length;
 
@@ -406,7 +413,7 @@ namespace Jint.Native.Global
             for (var k = 0; k < strLen; k++)
             {
                 var c = uriString[k];
-                if (System.Array.IndexOf(unescapedUriSet, c) != -1)
+                if (unescapedUriSet != null && unescapedUriSet.Contains(c))
                 {
                     _stringBuilder.Append(c);
                 }
@@ -414,7 +421,7 @@ namespace Jint.Native.Global
                 {
                     if (c >= 0xDC00 && c <= 0xDBFF)
                     {
-                        throw new JavaScriptException(Engine.UriError);
+                        ExceptionHelper.ThrowUriError(_engine);
                     }
 
                     int v;
@@ -427,19 +434,19 @@ namespace Jint.Native.Global
                         k++;
                         if (k == strLen)
                         {
-                            throw new JavaScriptException(Engine.UriError);
+                            ExceptionHelper.ThrowUriError(_engine);
                         }
 
                         var kChar = (int)uriString[k];
                         if (kChar < 0xDC00 || kChar > 0xDFFF)
                         {
-                            throw new JavaScriptException(Engine.UriError);
+                            ExceptionHelper.ThrowUriError(_engine);
                         }
 
                         v = (c - 0xD800) * 0x400 + (kChar - 0xDC00) + 0x10000;
                     }
 
-                    byte[] octets;
+                    byte[] octets = System.ArrayExt.Empty<byte>();
 
                     if (v >= 0 && v <= 0x007F)
                     {
@@ -467,7 +474,7 @@ namespace Jint.Native.Global
                     }
                     else if (v <= 0xDFFF)
                     {
-                        throw new JavaScriptException(Engine.UriError);
+                        ExceptionHelper.ThrowUriError(_engine);
                     }
                     else if (v <= 0xFFFF)
                     {
@@ -512,17 +519,18 @@ namespace Jint.Native.Global
         public JsValue DecodeUriComponent(JsValue thisObject, JsValue[] arguments)
         {
             var componentString = TypeConverter.ToString(arguments.At(0));
-            var reservedUriComponentSet = new char[0];
 
-            return Decode(componentString, reservedUriComponentSet);
+            return Decode(componentString, null);
         }
 
-        public string Decode(string uriString, char[] reservedSet)
+        private string Decode(string uriString, HashSet<char> reservedSet)
         {
             var strLen = uriString.Length;
 
             _stringBuilder.EnsureCapacity(strLen);
             _stringBuilder.Clear();
+
+            var octets = ArrayExt.Empty<byte>();
 
             for (var k = 0; k < strLen; k++)
             {
@@ -536,12 +544,12 @@ namespace Jint.Native.Global
                     var start = k;
                     if (k + 2 >= strLen)
                     {
-                        throw new JavaScriptException(Engine.UriError);
+                        ExceptionHelper.ThrowUriError(_engine);
                     }
 
                     if (!IsValidHexaChar(uriString[k + 1]) || !IsValidHexaChar(uriString[k + 2]))
                     {
-                        throw new JavaScriptException(Engine.UriError);
+                        ExceptionHelper.ThrowUriError(_engine);
                     }
 
                     var B = Convert.ToByte(uriString[k + 1].ToString() + uriString[k + 2], 16);
@@ -550,7 +558,7 @@ namespace Jint.Native.Global
                     if ((B & 0x80) == 0)
                     {
                         C = (char)B;
-                        if (System.Array.IndexOf(reservedSet, C) == -1)
+                        if (reservedSet == null || !reservedSet.Contains(C))
                         {
                             _stringBuilder.Append(C);
                         }
@@ -566,15 +574,18 @@ namespace Jint.Native.Global
 
                         if (n == 1 || n > 4)
                         {
-                            throw new JavaScriptException(Engine.UriError);
+                            ExceptionHelper.ThrowUriError(_engine);
                         }
 
-                        var Octets = new byte[n];
-                        Octets[0] = B;
+                        octets = octets.Length == n
+                            ? octets
+                            : new byte[n];
+
+                        octets[0] = B;
 
                         if (k + (3 * (n - 1)) >= strLen)
                         {
-                            throw new JavaScriptException(Engine.UriError);
+                            ExceptionHelper.ThrowUriError(_engine);
                         }
 
                         for (var j = 1; j < n; j++)
@@ -582,12 +593,12 @@ namespace Jint.Native.Global
                             k++;
                             if (uriString[k] != '%')
                             {
-                                throw new JavaScriptException(Engine.UriError);
+                                ExceptionHelper.ThrowUriError(_engine);
                             }
 
                             if (!IsValidHexaChar(uriString[k + 1]) || !IsValidHexaChar(uriString[k + 2]))
                             {
-                                throw new JavaScriptException(Engine.UriError);
+                                ExceptionHelper.ThrowUriError(_engine);
                             }
 
                             B = Convert.ToByte(uriString[k + 1].ToString() + uriString[k + 2], 16);
@@ -595,15 +606,15 @@ namespace Jint.Native.Global
                             // B & 11000000 != 10000000
                             if ((B & 0xC0) != 0x80)
                             {
-                                throw new JavaScriptException(Engine.UriError);
+                                ExceptionHelper.ThrowUriError(_engine);
                             }
 
                             k += 2;
 
-                            Octets[j] = B;
+                            octets[j] = B;
                         }
 
-                        _stringBuilder.Append(Encoding.UTF8.GetString(Octets, 0, Octets.Length));
+                        _stringBuilder.Append(Encoding.UTF8.GetString(octets, 0, octets.Length));
                     }
                 }
             }
@@ -633,11 +644,11 @@ namespace Jint.Native.Global
                 }
                 else if (c < 256)
                 {
-                    _stringBuilder.Append(string.Format("%{0}", ((int)c).ToString("X2")));
+                    _stringBuilder.Append($"%{((int) c):X2}");
                 }
                 else
                 {
-                    _stringBuilder.Append(string.Format("%u{0}", ((int)c).ToString("X4")));
+                    _stringBuilder.Append($"%u{((int) c):X4}");
                 }
             }
 

@@ -1,8 +1,11 @@
 ﻿using System;
-using System.Collections.ObjectModel;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Dynamic;
 using System.Linq.Expressions;
 using System.Reflection;
+using Jint.Extensions;
 using Jint.Native;
 
 namespace Jint.Runtime.Interop
@@ -10,8 +13,7 @@ namespace Jint.Runtime.Interop
     public class DefaultTypeConverter : ITypeConverter
     {
         private readonly Engine _engine;
-        private static readonly Dictionary<string, bool> _knownConversions = new Dictionary<string, bool>();
-        private static readonly object _lockObject = new object();
+        private static readonly ConcurrentDictionary<string, bool> _knownConversions = new ConcurrentDictionary<string, bool>();
 
         private static readonly MethodInfo convertChangeType = typeof(Convert).GetMethod("ChangeType", new Type[] { typeof(object), typeof(Type), typeof(IFormatProvider) });
         private static readonly MethodInfo jsValueFromObject = typeof(JsValue).GetMethod("FromObject");
@@ -31,7 +33,7 @@ namespace Jint.Runtime.Interop
                     return null;
                 }
 
-                throw new NotSupportedException(string.Format("Unable to convert null to '{0}'", type.FullName));
+                ExceptionHelper.ThrowNotSupportedException($"Unable to convert null to '{type.FullName}'");
             }
 
             // don't try to convert if value is derived from type
@@ -40,12 +42,12 @@ namespace Jint.Runtime.Interop
                 return value;
             }
 
-            if (type.IsEnum())
+            if (type.IsEnum)
             {
                 var integer = System.Convert.ChangeType(value, typeof(int), formatProvider);
                 if (integer == null)
                 {
-                    throw new ArgumentOutOfRangeException();
+                    ExceptionHelper.ThrowArgumentOutOfRangeException();
                 }
 
                 return Enum.ToObject(type, integer);
@@ -57,7 +59,7 @@ namespace Jint.Runtime.Interop
             {
                 var function = (Func<JsValue, JsValue[], JsValue>)value;
 
-                if (type.IsGenericType())
+                if (type.IsGenericType)
                 {
                     var genericType = type.GetGenericTypeDefinition();
 
@@ -75,7 +77,7 @@ namespace Jint.Runtime.Interop
                         for (var i = 0; i < @params.Length; i++)
                         {
                             var param = @params[i];
-                            if (param.Type.IsValueType())
+                            if (param.Type.IsValueType)
                             {
                                 var boxing = Expression.Convert(param, typeof(object));
                                 tmpVars[i] = Expression.Call(null, jsValueFromObject, Expression.Constant(_engine, typeof(Engine)), boxing);
@@ -89,7 +91,7 @@ namespace Jint.Runtime.Interop
 
                         var callExpresion = Expression.Block(Expression.Call(
                                                 Expression.Call(Expression.Constant(function.Target),
-                                                    function.GetMethodInfo(),
+                                                    function.Method,
                                                     Expression.Constant(JsValue.Undefined, typeof(JsValue)),
                                                     @vars),
                                                 jsValueToObject), Expression.Empty());
@@ -123,7 +125,7 @@ namespace Jint.Runtime.Interop
                                                     convertChangeType,
                                                     Expression.Call(
                                                             Expression.Call(Expression.Constant(function.Target),
-                                                                    function.GetMethodInfo(),
+                                                                    function.Method,
                                                                     Expression.Constant(JsValue.Undefined, typeof(JsValue)),
                                                                     @vars),
                                                             jsValueToObject),
@@ -139,7 +141,7 @@ namespace Jint.Runtime.Interop
                 {
                     if (type == typeof(Action))
                     {
-                        return (Action)(() => function(JsValue.Undefined, new JsValue[0]));
+                        return (Action)(() => function(JsValue.Undefined, ArrayExt.Empty<JsValue>()));
                     }
                     else if (typeof(MulticastDelegate).IsAssignableFrom(type))
                     {
@@ -163,7 +165,7 @@ namespace Jint.Runtime.Interop
                         var callExpression = Expression.Block(
                                                 Expression.Call(
                                                     Expression.Call(Expression.Constant(function.Target),
-                                                        function.GetMethodInfo(),
+                                                        function.Method,
                                                         Expression.Constant(JsValue.Undefined, typeof(JsValue)),
                                                         @vars),
                                                     typeof(JsValue).GetMethod("ToObject")),
@@ -181,7 +183,9 @@ namespace Jint.Runtime.Interop
             {
                 var source = value as object[];
                 if (source == null)
-                    throw new ArgumentException(String.Format("Value of object[] type is expected, but actual type is {0}.", value.GetType()));
+                {
+                    ExceptionHelper.ThrowArgumentException($"Value of object[] type is expected, but actual type is {value.GetType()}.");
+                }
 
                 var targetElementType = type.GetElementType();
                 var itemsConverted = new object[source.Length];
@@ -194,9 +198,63 @@ namespace Jint.Runtime.Interop
                 return result;
             }
 
-            if (type.IsGenericType() && type.GetGenericTypeDefinition() == typeof(Nullable<>))
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>))
             {
                 type = Nullable.GetUnderlyingType(type);
+            }
+
+            if (value is ExpandoObject eObj)
+            {
+                // public empty constructor required
+                var constructors = type.GetConstructors();
+                // value types
+                if (type.IsValueType && constructors.Length > 0)
+                {
+                    return null;
+                }
+
+                // reference types - return null if no valid constructor is found
+                if(!type.IsValueType)
+                {
+                    var found = false;
+                    foreach (var constructor in constructors)
+                    {
+                        if (constructor.GetParameters().Length == 0 && constructor.IsPublic)
+                        {
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if (!found)
+                    {
+                        // found no valid constructor
+                        return null;
+                    }
+                }
+
+                var dict = (IDictionary<string, object>) eObj;
+                var obj = Activator.CreateInstance(type, ArrayExt.Empty<object>());
+
+                var members = type.GetMembers();
+                foreach (var member in members)
+                {
+                    // only use fields an properties
+                    if (member.MemberType != MemberTypes.Property &&
+                        member.MemberType != MemberTypes.Field)
+                    {
+                        continue;
+                    }
+
+                    var name = member.Name.UpperToLowerCamelCase();
+                    if (dict.TryGetValue(name, out var val))
+                    {
+                        var output = Convert(val, member.GetDefinedType(), formatProvider);
+                        member.SetValue(obj, output);
+                    }
+                }
+
+                return obj;
             }
 
             return System.Convert.ChangeType(value, type, formatProvider);
@@ -204,30 +262,20 @@ namespace Jint.Runtime.Interop
 
         public virtual bool TryConvert(object value, Type type, IFormatProvider formatProvider, out object converted)
         {
-            bool canConvert;
-            var key = value == null ? String.Format("Null->{0}", type) : String.Format("{0}->{1}", value.GetType(), type);
+            var key = value == null ? $"Null->{type}" : $"{value.GetType()}->{type}";
 
-            if (!_knownConversions.TryGetValue(key, out canConvert))
+            var canConvert = _knownConversions.GetOrAdd(key, _ =>
             {
-                lock (_lockObject)
+                try
                 {
-                    if (!_knownConversions.TryGetValue(key, out canConvert))
-                    {
-                        try
-                        {
-                            converted = Convert(value, type, formatProvider);
-                            _knownConversions.Add(key, true);
-                            return true;
-                        }
-                        catch
-                        {
-                            converted = null;
-                            _knownConversions.Add(key, false);
-                            return false;
-                        }
-                    }
+                    Convert(value, type, formatProvider);
+                    return true;
                 }
-            }
+                catch
+                {
+                    return false;
+                }
+            });
 
             if (canConvert)
             {
