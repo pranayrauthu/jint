@@ -1,5 +1,4 @@
-﻿using System.Collections;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using Jint.Native.Object;
 using Jint.Runtime;
@@ -7,7 +6,7 @@ using Jint.Runtime.Descriptors;
 
 namespace Jint.Native.Array
 {
-    public class ArrayInstance : ObjectInstance, IEnumerable<JsValue>
+    public class ArrayInstance : ObjectInstance
     {
         internal PropertyDescriptor _length;
 
